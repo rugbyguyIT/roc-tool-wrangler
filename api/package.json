@@ -1,0 +1,22 @@
+{
+  "name": "hlsr-assets-api",
+  "version": "0.1.0",
+  "description": "HLSR Asset Tracker — Azure Functions API",
+  "main": "src/functions/*.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.5.0",
+    "@azure/storage-blob": "^12.24.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.11.5"
+  },
+  "scripts": {
+    "test": "node test/smoke.js",
+    "test:ui": "node test/ui.js",
+    "audit": "node test/routes-audit.js",
+    "dev": "node test/devserver.js"
+  }
+}
