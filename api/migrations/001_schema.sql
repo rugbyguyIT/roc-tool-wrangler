@@ -1,4 +1,4 @@
--- ══════════════════════════════════════════════════════════════════════════════
+-- ═══════════════════════════════════════════════════════════════════════
 -- HLSR Asset Tracker — schema rev 1
 --
 -- Run MANUALLY (8 Seconds convention — nothing in this app auto-runs SQL):
@@ -14,7 +14,7 @@
 --   Portal → your server → Server parameters → azure.extensions
 --   → tick PGCRYPTO and PG_TRGM → Save → restart the server.
 -- Without that, CREATE EXTENSION fails and nothing else in this file runs.
--- ══════════════════════════════════════════════════════════════════════════════
+-- ═══════════════════════════════════════════════════════════════════════
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- fuzzy asset/loanee search
@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS public.group_members (
 CREATE INDEX IF NOT EXISTS idx_group_members_loanee ON public.group_members (loanee_id);
 
 
--- ══ 4. LOOKUPS — admin-managed lists ═══════════════════════════════
+-- ══ 4. LOOKUPS — admin-managed lists ═══════════════════════════════════
 CREATE TABLE IF NOT EXISTS public.asset_categories (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name       TEXT NOT NULL,
@@ -182,7 +182,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS asset_photos_one_primary
   ON public.asset_photos (asset_id) WHERE is_primary;
 
 
--- ══ 6. LOANS — header + lines ══════════════════════════════════════
+-- ══ 6. LOANS — header + lines ══════════════════════════════════════════
 -- Cart-style checkout (several assets to one loanee in one handoff) with
 -- item-by-item check-in needs both halves:
 --   loans      — one row per handoff: who got it, who handed it over, when
@@ -225,7 +225,7 @@ CREATE INDEX IF NOT EXISTS idx_loan_items_asset ON public.loan_items (asset_id, 
 CREATE INDEX IF NOT EXISTS idx_loan_items_open  ON public.loan_items (due_at) WHERE checked_in_at IS NULL;
 
 
--- ══ 7. APPEND-ONLY EVENT LOG ══════════════════════════════════════════
+-- ══ 7. APPEND-ONLY EVENT LOG ═══════════════════════════════════════════
 -- Every state change writes a row here naming the actor. Nothing ever
 -- updates or deletes from this table — it is the custody paper trail.
 CREATE TABLE IF NOT EXISTS public.asset_events (
@@ -250,7 +250,7 @@ CREATE INDEX IF NOT EXISTS idx_asset_events_time   ON public.asset_events (creat
 CREATE INDEX IF NOT EXISTS idx_asset_events_event  ON public.asset_events (event);
 
 
--- ══ 8. NOTIFICATION OUTBOX — schema only in rev 1 ════════════════════
+-- ══ 8. NOTIFICATION OUTBOX — schema only in rev 1 ══════════════════════
 -- No sender ships in rev 1. The table exists now so that adding email or
 -- push later is a code change, not a migration against a live production
 -- database. The UNIQUE constraint is the dedupe guarantee that makes
@@ -306,7 +306,7 @@ CREATE TABLE IF NOT EXISTS public.import_rows (
 CREATE INDEX IF NOT EXISTS idx_import_rows_batch ON public.import_rows (batch_id, row_number);
 
 
--- ══ 10. SECURITY / OPS TABLES ══════════════════════════════════
+-- ══ 10. SECURITY / OPS TABLES ══════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS public.audit_logs (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   profile_id UUID,
@@ -372,7 +372,7 @@ RETURNS BOOLEAN LANGUAGE sql STABLE AS $$
 $$;
 
 
--- ══ 12. THE VIEW behind the leader board, out-now and overdue ════════
+-- ══ 12. THE VIEW behind the leader board, out-now and overdue ══════════
 -- "Overdue" is COMPUTED here, never stored. Storing it would need a timer
 -- to flip the flag, and Azure Static Web Apps' managed Functions are
 -- HTTP-only — there is no timer trigger to run one.
