@@ -1,4 +1,4 @@
-// ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 // HLSR Asset Tracker — custody
 //   POST /api/checkout                staff, admin
 //   POST /api/checkin                 staff, admin
@@ -11,7 +11,7 @@
 //
 // All the interesting logic lives in assets-core.js. These handlers do
 // input shaping, the default-due-date rule, and audit logging.
-// ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 const { app } = require('@azure/functions');
 const { query } = require('../db');
 const {
