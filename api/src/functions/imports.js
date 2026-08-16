@@ -1,4 +1,4 @@
-// ══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════
 // HLSR Asset Tracker — CSV / XLSX import
 //   POST /api/imports/{kind}/preview   admin   dry run, writes nothing real
 //   POST /api/imports/{kind}/commit    admin   applies a previewed batch
@@ -17,7 +17,7 @@
 // Preview writes to import_rows only. Commit re-reads those rows from the
 // database rather than accepting a re-sent client payload, which is what
 // makes "what you approved is what gets written" actually true.
-// ══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════
 const { app } = require('@azure/functions');
 const { query, withTransaction } = require('../db');
 const {
@@ -30,7 +30,7 @@ const MAX_CHUNK = 500;   // rows per preview request — keeps each call well
                          // inside Static Web Apps' body-size and duration caps
 const KINDS = { loanees: 'loanees', assets: 'assets', 'group-members': 'group_members' };
 
-// ── Header aliases ─────────────────────────────────────────────────
+// ── Header aliases ─────────────────────────────────────────────────────
 // Headers are normalized (trim → lowercase → collapse separators to one
 // space) and matched here. Anything unrecognized is ignored and reported.
 const ALIASES = {
@@ -93,7 +93,7 @@ function cell(row, map, field) {
   return '';
 }
 
-// ═══ PREVIEW ══════════════════════════════════════════════════
+// ═══ PREVIEW ═══════════════════════════════════════════════════════════
 app.http('importPreview', {
   methods: ['POST'], authLevel: 'anonymous', route: 'imports/{kind}/preview',
   handler: async (request) => {
@@ -303,7 +303,7 @@ app.http('importPreview', {
   },
 });
 
-// ═══ COMMIT ═══════════════════════════════════════════════════
+// ═══ COMMIT ════════════════════════════════════════════════════════════
 app.http('importCommit', {
   methods: ['POST'], authLevel: 'anonymous', route: 'imports/{kind}/commit',
   handler: async (request) => {
