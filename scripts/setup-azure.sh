@@ -125,10 +125,15 @@ ok "Host: $DB_HOST"
 # The database is created as a separate call rather than with
 # --database-name on the line above: current Azure CLI versions reject
 # that flag on flexible servers, accepting it only for elastic clusters.
-if az postgres flexible-server db show -g "$RG" -s "$DB_SERVER" -d "$DB_NAME" >/dev/null 2>&1; then
+#
+# Existence is checked with `db list` rather than `db show`, because the
+# flag naming on the per-database commands has moved around between CLI
+# versions (-d vs -n) while `db list` has only ever needed the server.
+if az postgres flexible-server db list -g "$RG" -s "$DB_SERVER" \
+     --query "[?name=='$DB_NAME'].name" -o tsv 2>/dev/null | grep -qx "$DB_NAME"; then
   skip "database '$DB_NAME'"
 else
-  az postgres flexible-server db create -g "$RG" -s "$DB_SERVER" -d "$DB_NAME" --output none
+  az postgres flexible-server db create -g "$RG" -s "$DB_SERVER" -n "$DB_NAME" --output none
   ok "Database '$DB_NAME' created"
 fi
 
