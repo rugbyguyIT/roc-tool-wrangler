@@ -260,7 +260,7 @@ function formValues(form) {
   return o;
 }
 
-// ── Shared top nav ────────────────────────────────────────
+// ── Shared top nav ─────────────────────────────────────────────
 // Fills any EMPTY .topnav-links with the right links for the signed-in
 // role, so the menu persists as you move between pages. admin.html
 // hardcodes its own (its tabs are in-page view switches, not URLs), and
