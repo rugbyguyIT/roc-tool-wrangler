@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="classic">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Check In / Out · {{app}}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Oswald:wght@400;500;600;700&family=Inter:opsz,wght@14..32,300..800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="/css/brand.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="/icons/icon.svg?v=2" />
+  <link rel="apple-touch-icon" href="/icons/icon.svg?v=2" />
+  <meta name="theme-color" content="#002E5D" />
+  <meta name="robots" content="noindex, nofollow" />
+</head>
+<body>
+<div class="shell">
+  <nav class="topnav">
+    <div class="topnav-brand">
+      <div class="brand-mark"><i class="fa-solid fa-screwdriver-wrench"></i></div>
+      <div class="brand-word"><b data-app-short>HLSR Assets</b><span>Check In / Out</span></div>
+    </div>
+    <div class="topnav-links"></div>
+    <div class="topnav-user">
+      <div class="avatar" id="user-avatar"><i class="fa-solid fa-user"></i></div>
+      <div class="user-meta">
+        <div class="user-name" id="user-name">Loading…</div>
+        <div class="user-role-label" id="user-role-label"></div>
+      </div>
+      <button class="btn btn-sm" onclick="signOut()" title="Sign out">
+        <i class="fa-solid fa-right-from-bracket"></i>
+      </button>
+    </div>
+  </nav>
+
+  <div class="content">
+    <div class="topbar">
+      <div>
+        <div class="page-title">Check In / Out</div>
+        <div class="page-sub" id="page-sub">Hand equipment out and take it back in</div>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn nav-item active" id="tab-out" onclick="setView('out')">
+          <i class="fa-solid fa-arrow-right-from-bracket"></i> Check Out
+        </button>
+        <button class="btn nav-item" id="tab-in" onclick="setView('in')">
+          <i class="fa-solid fa-arrow-right-to-bracket"></i> Check In
+        </button>
+      </div>
+    </div>
+
+    <div class="main-panel">
+
+      <!-- ══════════ CHECK OUT ══════════ -->
+      <div class="view active" id="view-out">
+        <div class="bento-grid">
+
+          <!-- Step 1 · who -->
+          <div class="bento-7">
+            <div class="card">
+              <div class="section-title"><i class="fa-solid fa-user"></i> 1 · Who is taking it?</div>
+              <div id="loanee-picked" style="display:none"></div>
+              <div id="loanee-search">
+                <div class="form-group" style="margin-bottom:0">
+                  <input class="form-input" id="loanee-input" type="text"
+                         placeholder="Search by name, email or phone…" />
+                </div>
+                <div class="small muted" style="margin-top:8px">
+                  Type at least two characters. A badge scanner works here too — it types and presses Enter.
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 2 · what -->
+            <div class="card" style="margin-top:16px">
+              <div class="section-title"><i class="fa-solid fa-boxes-stacked"></i> 2 · What are they taking?</div>
+              <div class="form-group">
+                <input class="form-input" id="asset-input" type="text"
+                       placeholder="Search or scan an asset tag, title or serial…" disabled />
+              </div>
+              <div id="cart-wrap"></div>
+            </div>
+          </div>
+
+          <!-- Step 3 · terms -->
+          <div class="bento-5">
+            <div class="card card-sm">
+              <div class="section-title"><i class="fa-solid fa-clock"></i> 3 · When is it due back?</div>
+              <div class="form-group">
+                <label class="form-label" for="due-input">Due date and time</label>
+                <input class="form-input" type="datetime-local" id="due-input" />
+              </div>
+              <div class="pill-row" style="margin-bottom:14px">
+                <button type="button" class="btn btn-sm" onclick="setDue(12)">+12 hours</button>
+                <button type="button" class="btn btn-sm" onclick="setDueTonight()">Tonight 6pm</button>
+                <button type="button" class="btn btn-sm" onclick="setDue(24)">Tomorrow</button>
+                <button type="button" class="btn btn-sm" onclick="setDue(null)">Indefinite</button>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="cond-input">Condition going out</label>
+                <select class="form-input" id="cond-input">
+                  <option value="">Not recorded</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="notes-input">Notes</label>
+                <textarea class="form-input" id="notes-input" rows="2"
+                          placeholder="Anything worth remembering about this handoff…"></textarea>
+              </div>
+              <button class="drive-action" id="checkout-btn" onclick="doCheckout()" disabled>
+                <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                <span id="checkout-label">Check Out</span>
+              </button>
+              <div class="small muted" style="text-align:center;margin-top:10px">
+                Recorded against <b id="operator-name">you</b>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════ CHECK IN ══════════ -->
+      <div class="view" id="view-in">
+        <div class="bento-grid">
+          <div class="bento-5">
+            <div class="card">
+              <div class="section-title"><i class="fa-solid fa-barcode"></i> Find it by asset</div>
+              <div class="form-group" style="margin-bottom:0">
+                <input class="form-input" id="in-asset-input" type="text"
+                       placeholder="Search or scan the asset…" />
+              </div>
+            </div>
+            <div class="card" style="margin-top:16px">
+              <div class="section-title"><i class="fa-solid fa-user"></i> Or by person</div>
+              <div class="form-group" style="margin-bottom:0">
+                <input class="form-input" id="in-loanee-input" type="text"
+                       placeholder="Search for who has it…" />
+              </div>
+              <div class="small muted" style="margin-top:8px">
+                Shows everything that person currently has out, so you can take back some or all of it.
+              </div>
+            </div>
+          </div>
+          <div class="bento-7">
+            <div id="checkin-panel"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <footer class="site-footer">
+      <span data-app-name>HLSR Asset Tracker</span> · <span data-app-org>Houston Livestock Show and Rodeo</span>
+    </footer>
+  </div>
+</div>
+
+<script src="/js/config.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/assets-ui.js"></script>
+<script src="/js/picker.js"></script>
+<script src="/js/cart.js"></script>
+<script src="/js/staff.js"></script>
+</body>
+</html>

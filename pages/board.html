@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="classic">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Out Now · {{app}}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Oswald:wght@400;500;600;700&family=Inter:opsz,wght@14..32,300..800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="/css/brand.css" />
+  <link rel="stylesheet" href="/css/board-glass.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="/icons/icon.svg?v=2" />
+  <link rel="apple-touch-icon" href="/icons/icon.svg?v=2" />
+  <meta name="theme-color" content="#040d1c" />
+  <meta name="robots" content="noindex, nofollow" />
+</head>
+<body class="theme-glass">
+<div class="shell">
+  <nav class="topnav">
+    <div class="topnav-brand">
+      <div class="brand-mark"><i class="fa-solid fa-screwdriver-wrench"></i></div>
+      <div class="brand-word"><b data-app-short>HLSR Assets</b><span>Out Now</span></div>
+    </div>
+    <div class="topnav-links"></div>
+    <div class="topnav-user">
+      <div class="avatar" id="user-avatar"><i class="fa-solid fa-user"></i></div>
+      <div class="user-meta">
+        <div class="user-name" id="user-name">Loading…</div>
+        <div class="user-role-label" id="user-role-label"></div>
+      </div>
+      <button class="btn btn-sm" onclick="signOut()" title="Sign out">
+        <i class="fa-solid fa-right-from-bracket"></i>
+      </button>
+    </div>
+  </nav>
+
+  <div class="content">
+    <div class="topbar">
+      <div>
+        <div class="page-title">Out Now</div>
+        <div class="page-sub">Everything currently signed out, and who has it</div>
+      </div>
+      <div class="topbar-actions">
+        <div class="board-updated">
+          <i class="fa-solid fa-rotate" id="refresh-icon"></i>
+          <span id="updated-at">—</span>
+        </div>
+        <button class="btn btn-sm" onclick="refresh(true)"><i class="fa-solid fa-arrows-rotate"></i></button>
+      </div>
+    </div>
+
+    <div class="main-panel">
+      <div class="board-offline">
+        <i class="fa-solid fa-wifi"></i> No connection — showing the last data loaded.
+      </div>
+
+      <div class="stat-grid" id="stats"></div>
+
+      <div class="form-group" style="margin:18px 0 12px">
+        <input class="form-input" id="board-search" type="search"
+               placeholder="Filter by item, tag, person or committee…" />
+      </div>
+
+      <div class="board-filters" id="filters"></div>
+
+      <div id="feed"></div>
+    </div>
+    <footer class="site-footer">
+      <span data-app-name>HLSR Asset Tracker</span> · <span data-app-org>Houston Livestock Show and Rodeo</span>
+    </footer>
+  </div>
+</div>
+
+<script src="/js/config.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/assets-ui.js"></script>
+<script src="/js/board.js"></script>
+</body>
+</html>
