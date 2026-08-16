@@ -1,13 +1,13 @@
-// ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 // HLSR Asset Tracker — the check-out / check-in counter.
 // This is the screen the app exists for; everything else supports it.
-// ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 const me = requireLogin('staff', 'admin');
 let SETTINGS = { default_loan_hours: 12 };
 let checkinItems = [];   // open loan items currently listed on the check-in side
 let checkinContext = ''; // a heading describing where that list came from
 
-// ── View switching ────────────────────────────────────────────
+// ── View switching ─────────────────────────────────────────────
 function setView(v) {
   document.getElementById('view-out').classList.toggle('active', v === 'out');
   document.getElementById('view-in').classList.toggle('active', v === 'in');
@@ -19,7 +19,7 @@ function setView(v) {
   else document.getElementById('in-asset-input')?.focus();
 }
 
-// ── Due date ───────────────────────────────────────────────
+// ── Due date ───────────────────────────────────────────────────
 // Pre-filled to now + the configured default (12 hours). Staff can
 // change it or clear it; a cleared field means an indefinite loan and is
 // sent to the server as an explicit null, not as "unset".
@@ -34,7 +34,7 @@ function setDueTonight() {
   document.getElementById('due-input').value = toLocalInput(d);
 }
 
-// ── Cart rendering ───────────────────────────────────────────
+// ── Cart rendering ─────────────────────────────────────────────
 function renderLoanee() {
   const picked = document.getElementById('loanee-picked');
   const search = document.getElementById('loanee-search');
@@ -132,7 +132,7 @@ function removeItem(id) {
   renderCart();
 }
 
-// ── Check out ────────────────────────────────────────────────────
+// ── Check out ──────────────────────────────────────────────────
 async function doCheckout() {
   if (!Cart.loanee) return toastMsg('Choose a person first', 'Search for who is taking the equipment.', 'error');
   if (!Cart.items.length) return toastMsg('The cart is empty', 'Add at least one item.', 'error');
@@ -177,7 +177,7 @@ async function doCheckout() {
   document.getElementById('loanee-input').focus();
 }
 
-// ── Check in ────────────────────────────────────────────────────
+// ── Check in ───────────────────────────────────────────────────
 function renderCheckin() {
   const panel = document.getElementById('checkin-panel');
   if (!checkinItems.length) {
@@ -285,7 +285,7 @@ async function doCheckin() {
   renderCheckin();
 }
 
-// ── Boot ────────────────────────────────────────────────
+// ── Boot ───────────────────────────────────────────────────────
 (async function init() {
   if (!me) return;
   document.getElementById('operator-name').textContent = me.full_name || me.email;
