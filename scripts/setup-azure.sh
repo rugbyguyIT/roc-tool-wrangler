@@ -116,7 +116,7 @@ else
     --resource-group "$RG" --name "$DB_SERVER" --location "$LOCATION" \
     --admin-user "$DB_ADMIN" --admin-password "$DB_PASSWORD" \
     --tier Burstable --sku-name Standard_B1ms --storage-size 32 --version 16 \
-    --public-access None --yes --output none
+    --public-access Enabled --yes --output none
   ok "Created (Burstable B1ms, PostgreSQL 16)"
 fi
 DB_HOST=$(az postgres flexible-server show -g "$RG" -n "$DB_SERVER" --query fullyQualifiedDomainName -o tsv)
@@ -138,6 +138,11 @@ else
 fi
 
 # ── 3. Firewall ────────────────────────────────────────────────────────
+# Requires the server to have been created with --public-access Enabled.
+# 'None' reads like the right choice but leaves public access off, and
+# then every firewall-rule call fails with "not supported for a server
+# without public access enabled" — and public/private networking cannot
+# reliably be switched after the server is created.
 step "3/8  Firewall"
 # 0.0.0.0-0.0.0.0 is Azure's magic value for "other Azure services" — it is
 # NOT the public internet. The Static Web App's Functions need it.
