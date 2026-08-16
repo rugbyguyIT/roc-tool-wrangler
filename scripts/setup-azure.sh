@@ -116,11 +116,21 @@ else
     --resource-group "$RG" --name "$DB_SERVER" --location "$LOCATION" \
     --admin-user "$DB_ADMIN" --admin-password "$DB_PASSWORD" \
     --tier Burstable --sku-name Standard_B1ms --storage-size 32 --version 16 \
-    --database-name "$DB_NAME" --public-access None --yes --output none
-  ok "Created (Burstable B1ms, PostgreSQL 16, database '$DB_NAME')"
+    --public-access None --yes --output none
+  ok "Created (Burstable B1ms, PostgreSQL 16)"
 fi
 DB_HOST=$(az postgres flexible-server show -g "$RG" -n "$DB_SERVER" --query fullyQualifiedDomainName -o tsv)
 ok "Host: $DB_HOST"
+
+# The database is created as a separate call rather than with
+# --database-name on the line above: current Azure CLI versions reject
+# that flag on flexible servers, accepting it only for elastic clusters.
+if az postgres flexible-server db show -g "$RG" -s "$DB_SERVER" -d "$DB_NAME" >/dev/null 2>&1; then
+  skip "database '$DB_NAME'"
+else
+  az postgres flexible-server db create -g "$RG" -s "$DB_SERVER" -d "$DB_NAME" --output none
+  ok "Database '$DB_NAME' created"
+fi
 
 # ── 3. Firewall ────────────────────────────────────────────────────────
 step "3/8  Firewall"
