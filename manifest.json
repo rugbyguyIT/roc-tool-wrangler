@@ -1,7 +1,7 @@
 {
   "name": "HLSR Asset Tracker",
   "short_name": "HLSR Assets",
-  "description": "Houston Livestock Show and Rodeo — tool, cart and equipment check-in / check-out",
+  "description": "Houston Livestock Show and Rodeo \u2014 tool, cart and equipment check-in / check-out",
   "start_url": "/index.html",
   "display": "standalone",
   "background_color": "#002E5D",
