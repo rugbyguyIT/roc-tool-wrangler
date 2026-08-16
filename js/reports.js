@@ -1,4 +1,4 @@
-// ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 // HLSR Asset Tracker — reports.
 //
 // Six reports, one shape. Each declares its endpoint, its table columns
@@ -7,7 +7,7 @@
 //
 // The CSV is built from exactly the rows on screen (js/csv.js), so the
 // export can never disagree with what the person is looking at.
-// ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 const me = requireLogin('admin');
 
 let CURRENT = 'out-now';
@@ -180,7 +180,7 @@ const REPORTS = {
   },
 };
 
-// ── Date range ────────────────────────────────────────────
+// ── Date range ─────────────────────────────────────────────────
 function dateParams() {
   const p = new URLSearchParams();
   const from = document.getElementById('r-from').value;
@@ -209,7 +209,7 @@ function setRange(kind) {
   load();
 }
 
-// ── Per-report filters ──────────────────────────────────────
+// ── Per-report filters ─────────────────────────────────────────
 let FILTER_VALUE = '';
 function filterParam(name) {
   return FILTER_VALUE ? `&${name}=${encodeURIComponent(FILTER_VALUE)}` : '';
@@ -243,7 +243,7 @@ async function onAssetPick(v) {
   load();
 }
 
-// ── Rendering ─────────────────────────────────────────────
+// ── Rendering ──────────────────────────────────────────────────
 function renderTabs() {
   document.getElementById('report-tabs').innerHTML = Object.entries(REPORTS).map(([k, r]) =>
     `<button class="btn btn-sm nav-item${k === CURRENT ? ' active' : ''}" onclick="setReport('${k}')">
@@ -327,7 +327,7 @@ function doExport() {
   exportRows(CURRENT, ROWS, REPORTS[CURRENT].csv);
 }
 
-// ── Boot ───────────────────────────────────────────────────
+// ── Boot ───────────────────────────────────────────────────────
 (async function init() {
   if (!me) return;
   renderTabs();
