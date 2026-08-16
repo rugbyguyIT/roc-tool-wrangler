@@ -10,7 +10,7 @@
 //   POST   /api/assets/{id}/photos           admin
 //   DELETE /api/assets/{id}/photos/{photoId} admin
 //   POST   /api/assets/{id}/action           staff, admin
-// ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 const { app } = require('@azure/functions');
 const { query, withTransaction } = require('../db');
 const {
