@@ -141,22 +141,22 @@ fi
 step "3/8  Firewall"
 # 0.0.0.0-0.0.0.0 is Azure's magic value for "other Azure services" — it is
 # NOT the public internet. The Static Web App's Functions need it.
-if az postgres flexible-server firewall-rule show -g "$RG" -n "$DB_SERVER" --rule-name AllowAzureServices >/dev/null 2>&1; then
+if az postgres flexible-server firewall-rule show -g "$RG" -s "$DB_SERVER" -n AllowAzureServices >/dev/null 2>&1; then
   skip "AllowAzureServices"
 else
-  az postgres flexible-server firewall-rule create -g "$RG" -n "$DB_SERVER" \
-    --rule-name AllowAzureServices --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0 --output none
+  az postgres flexible-server firewall-rule create -g "$RG" -s "$DB_SERVER" \
+    -n AllowAzureServices --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0 --output none
   ok "Azure services allowed"
 fi
 
 MY_IP="$(curl -fsS --max-time 10 https://api.ipify.org 2>/dev/null || true)"
 if [[ -n "$MY_IP" ]]; then
-  if az postgres flexible-server firewall-rule show -g "$RG" -n "$DB_SERVER" --rule-name ClientIP >/dev/null 2>&1; then
-    az postgres flexible-server firewall-rule update -g "$RG" -n "$DB_SERVER" \
-      --rule-name ClientIP --start-ip-address "$MY_IP" --end-ip-address "$MY_IP" --output none
+  if az postgres flexible-server firewall-rule show -g "$RG" -s "$DB_SERVER" -n ClientIP >/dev/null 2>&1; then
+    az postgres flexible-server firewall-rule update -g "$RG" -s "$DB_SERVER" \
+      -n ClientIP --start-ip-address "$MY_IP" --end-ip-address "$MY_IP" --output none
   else
-    az postgres flexible-server firewall-rule create -g "$RG" -n "$DB_SERVER" \
-      --rule-name ClientIP --start-ip-address "$MY_IP" --end-ip-address "$MY_IP" --output none
+    az postgres flexible-server firewall-rule create -g "$RG" -s "$DB_SERVER" \
+      -n ClientIP --start-ip-address "$MY_IP" --end-ip-address "$MY_IP" --output none
   fi
   ok "This machine allowed ($MY_IP)"
 else
