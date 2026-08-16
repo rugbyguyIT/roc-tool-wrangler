@@ -1,4 +1,4 @@
-// ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 // HLSR Asset Tracker — reports
 //   GET /api/reports/out-now     any    (the board needs it)
 //   GET /api/reports/overdue     any    (the board needs it)
@@ -11,7 +11,7 @@
 // JSON rows. CSV export happens client-side from exactly these rows
 // (js/csv.js), so the exported file always matches what's on screen and
 // there is no second copy of any of this SQL.
-// ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 const { app } = require('@azure/functions');
 const { query } = require('../db');
 const { json, err, requireAuth, requireRole, qs, uuidOrNull } = require('../middleware');
@@ -24,7 +24,7 @@ function limitOf(p, def = 2000) {
   return Math.min(parseInt(p.get('limit') || String(def), 10) || def, MAX_ROWS);
 }
 
-// ── Currently out ────────────────────────────────────────
+// ── Currently out ──────────────────────────────────────────────
 app.http('reportOutNow', {
   methods: ['GET'], authLevel: 'anonymous', route: 'reports/out-now',
   handler: async (request) => {
@@ -44,7 +44,7 @@ app.http('reportOutNow', {
   },
 });
 
-// ── Overdue ──────────────────────────────────────────────
+// ── Overdue ────────────────────────────────────────────────────
 // Grace is read from settings rather than hardcoded, so "we don't chase
 // anything under an hour late" is a setting change, not a deploy.
 app.http('reportOverdue', {
@@ -147,7 +147,7 @@ app.http('reportByAsset', {
   },
 });
 
-// ── Inventory — one ROLLUP query, three views ──────────────
+// ── Inventory — one ROLLUP query, three views ──────────────────
 // group_by chooses which projection the UI renders (status / category ×
 // status / location × status) rather than issuing three queries.
 app.http('reportInventory', {
@@ -174,7 +174,7 @@ app.http('reportInventory', {
   },
 });
 
-// ── Activity log ─────────────────────────────────────────
+// ── Activity log ───────────────────────────────────────────────
 app.http('reportActivity', {
   methods: ['GET'], authLevel: 'anonymous', route: 'reports/activity',
   handler: async (request) => {
