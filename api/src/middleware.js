@@ -1,4 +1,4 @@
-// ───────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 // HLSR Asset Tracker — auth middleware
 //
 // NOTE: Azure Static Web Apps STRIPS the Authorization header before
@@ -6,7 +6,7 @@
 // 8 Second Rides both hit). We therefore carry the JWT in a custom
 // header: x-assets-token. If you ever see a blanket 401 on every call,
 // check that first.
-// ───────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 const jwt = require('jsonwebtoken');
 const { query } = require('./db');
 
@@ -126,7 +126,7 @@ function errFromThrow(e) {
   throw e; // a real bug — let hooks.js log it as an unhandled exception
 }
 
-// ── Request helpers ─────────────────────────────────────────
+// ── Request helpers ────────────────────────────────────────────
 // Azure SWA forwards the caller's real IP in x-forwarded-for.
 function getIp(request) {
   const fwd = request.headers.get('x-forwarded-for') || '';
