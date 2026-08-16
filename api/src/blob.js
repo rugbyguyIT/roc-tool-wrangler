@@ -1,4 +1,4 @@
-// ───────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 // HLSR Asset Tracker — Azure Blob Storage helper (asset photos)
 // Env: AZURE_STORAGE_CONNECTION_STRING
 //
@@ -12,7 +12,7 @@
 // do not extend this helper to store documents, IDs, or photos of
 // people without switching to SAS tokens or a private container with a
 // server-side proxy.
-// ───────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 const { BlobServiceClient } = require('@azure/storage-blob');
 
 const CONTAINER = 'asset-photos';
