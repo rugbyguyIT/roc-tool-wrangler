@@ -22,7 +22,7 @@
 # ═══════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
-# ── Configuration ───────────────────────────────────────────────────────
+# ── Configuration ──────────────────────────────────────────────────────
 # Override inline, e.g.:  STORAGE=rocwranglerpics ./scripts/setup-azure.sh
 RG="${RG:-roc-tool-wrangler-rg}"
 LOCATION="${LOCATION:-southcentralus}"          # database + storage
@@ -228,7 +228,7 @@ grep -q '^DATABASE_URL=' "$SECRETS_FILE" 2>/dev/null || {
   printf "DATABASE_URL='%s'\nAPP_URL='%s'\n" "$DATABASE_URL" "$APP_URL" >> "$SECRETS_FILE"
 }
 
-# ── 8. Deploy ────────────────────────────────────────────────────
+# ── 8. Deploy ──────────────────────────────────────────────────────────
 step "8/8  Deployment"
 # Nothing to do here: linking the repo above started a GitHub Actions run,
 # and every future push to main redeploys automatically. Watch it at:
@@ -236,7 +236,7 @@ step "8/8  Deployment"
 ok "GitHub Actions is building and deploying — watch $REPO_URL/actions"
 ok "First run takes 3-5 minutes"
 
-# ── Schema ──────────────────────────────────────────────────────────
+# ── Schema ─────────────────────────────────────────────────────────────
 step "Loading the database schema"
 if [[ "$HAVE_PSQL" == "1" ]]; then
   if PGPASSWORD="$DB_PASSWORD" psql \
@@ -252,7 +252,7 @@ else
   printf '\n    psql %s -f api/migrations/001_schema.sql\n' "'$DATABASE_URL'"
 fi
 
-# ── Done ──────────────────────────────────────────────────────────
+# ── Done ───────────────────────────────────────────────────────────────
 cat <<EOF
 
 ${BOLD}${GREEN}Done. Your app is live at ${APP_URL}${RESET}
