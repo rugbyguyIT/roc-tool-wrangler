@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="classic">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Sign In · {{app}}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Oswald:wght@400;500;600;700&family=Inter:opsz,wght@14..32,300..800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="/css/brand.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="/icons/icon.svg?v=2" />
+  <link rel="apple-touch-icon" href="/icons/icon.svg?v=2" />
+  <meta name="theme-color" content="#002E5D" />
+  <meta name="robots" content="noindex, nofollow" />
+</head>
+<body>
+<div class="auth-wrap">
+  <div class="auth-shell">
+    <div class="auth-orb">
+      <span class="auth-ring auth-ring-1"></span>
+      <span class="auth-ring auth-ring-2"></span>
+      <span class="auth-ring auth-ring-3"></span>
+      <div class="auth-orb-core">
+        <img class="auth-orb-logo" src="/login-logo.svg" alt=""
+             onerror="this.style.display='none';document.getElementById('auth-logo-fallback').style.display='flex'" />
+        <div id="auth-logo-fallback" style="display:none;align-items:center;justify-content:center;height:100%">
+          <i class="fa-solid fa-screwdriver-wrench" style="font-size:30px;color:#f5a623"></i>
+        </div>
+      </div>
+    </div>
+
+    <div class="auth-card">
+      <div id="login-error" class="auth-error" style="display:none"></div>
+
+      <div class="auth-eyebrow" data-app-org>Houston Livestock Show and Rodeo</div>
+      <h1 class="auth-heading" style="margin-bottom:8px">
+        <span class="auth-heading-accent">Sign in.</span>
+      </h1>
+      <div class="auth-sub" style="margin-bottom:24px">
+        Tool, cart and equipment check-out. Accounts are created by an administrator.
+      </div>
+
+      <form onsubmit="handleLogin(event)" autocomplete="on">
+        <label class="auth-field-label" for="email">Email address</label>
+        <input class="auth-input" type="email" id="email" name="email"
+               placeholder="you@example.com" required autocomplete="username" />
+
+        <label class="auth-field-label" for="password">Password</label>
+        <div class="auth-pw-wrap">
+          <input class="auth-input auth-input-pw" type="password" id="password" name="password"
+                 placeholder="••••••••••" required autocomplete="current-password" />
+          <button type="button" class="auth-pw-toggle" onclick="togglePw()" aria-label="Show password">
+            <i class="fa-solid fa-eye" id="pw-icon"></i>
+          </button>
+        </div>
+
+        <button type="submit" class="auth-btn" id="login-btn">
+          <span id="login-btn-label">Sign In</span><i class="fa-solid fa-arrow-right"></i>
+        </button>
+      </form>
+
+      <div class="auth-copyright">
+        <span data-app-name>HLSR Asset Tracker</span> ·
+        <span id="cr-year"></span> Houston Livestock Show and Rodeo
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/config.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/auth.js"></script>
+<script>document.getElementById('cr-year').textContent = new Date().getFullYear();</script>
+</body>
+</html>

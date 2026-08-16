@@ -1,0 +1,29 @@
+/* ─────────────────────────────────────────────────────────────
+   HLSR Asset Tracker — BRANDING SWAP POINT 2 of 4.
+
+   Loaded AFTER css/style.css, and contains nothing but :root
+   overrides. Every component in style.css is built on these custom
+   properties, so changing the values here re-skins the entire app —
+   buttons, badges, cards, tables, charts, the login orb, everything.
+   You should never need to edit style.css to rebrand.
+
+   Currently set to the same HLSR palette as 8 Second Rides so the two
+   apps read as siblings. Swap the four values below when the final
+   logo and colors land.
+───────────────────────────────────────────────────────────── */
+:root {
+  /* --- the four that actually matter --- */
+  --navy: #002E5D;          /* headers, footer, PWA theme color */
+  --orange: #EF7622;        /* primary accent */
+  --orange2: #d4651a;       /* accent, pressed/hover */
+  --gold: #f5a623;          /* login orb + highlight */
+
+  /* Derived — keep in step with the two above. */
+  --accent: var(--orange);
+  --accent2: var(--orange2);
+  --orangeglow: rgba(239, 118, 34, 0.14);
+  --accentglow: rgba(239, 118, 34, 0.14);
+
+  /* Logo used by the login orb; swap the file, not the rule. */
+  --brand-logo: url('/login-logo.svg');
+}

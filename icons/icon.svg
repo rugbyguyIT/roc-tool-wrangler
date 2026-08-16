@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Tool Wrangler">
+  <rect width="512" height="512" rx="96" fill="#002E5D"/>
+  <!-- wrench, rotated, in brand orange -->
+  <g transform="rotate(-38 256 256)">
+    <path fill="#EF7622" d="M330 128a74 74 0 0 0-98.6 69.8c0 8.4 1.4 16.5 4 24L134 319.2a34 34 0 0 0 0 48.1l10.7 10.7a34 34 0 0 0 48.1 0l97.4-101.4c7.5 2.6 15.6 4 24 4A74 74 0 0 0 384 202a73.6 73.6 0 0 0-8.6-34.6l-45 45-33.8-33.8 45-45A73.6 73.6 0 0 0 330 128z"/>
+    <circle cx="168" cy="352" r="13" fill="#002E5D"/>
+  </g>
+</svg>
