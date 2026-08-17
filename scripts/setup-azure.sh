@@ -41,7 +41,7 @@ REPO_BRANCH="${REPO_BRANCH:-main}"
 
 SECRETS_FILE=".azure-secrets.env"
 
-# ── Output helpers ──────────────────────────────────────────────────────
+# ── Output helpers ─────────────────────────────────────────────────────
 BOLD=$'\e[1m'; DIM=$'\e[2m'; GREEN=$'\e[32m'; YELLOW=$'\e[33m'; RED=$'\e[31m'; RESET=$'\e[0m'
 step()  { printf '\n%s▸ %s%s\n' "$BOLD" "$1" "$RESET"; }
 ok()    { printf '  %s✓%s %s\n' "$GREEN" "$RESET" "$1"; }
@@ -231,7 +231,7 @@ SWA_HOST=$(az staticwebapp show -g "$RG" -n "$SWA_NAME" --query defaultHostname 
 APP_URL="https://$SWA_HOST"
 ok "URL: $APP_URL"
 
-# ── 7. App settings ──────────────────────────────────────────────────────
+# ── 7. App settings ────────────────────────────────────────────────────
 # Set BEFORE deploying so the Functions have their config the moment they
 # start, rather than booting once without a database and erroring.
 step "7/8  Application settings"
