@@ -57,12 +57,14 @@ async function loadLoanees() {
     return;
   }
   el.innerHTML = `<div style="overflow-x:auto"><table class="tbl">
-    <thead><tr><th>Name</th><th>Contact</th><th>Position</th><th>Sub-committee</th><th>Groups</th><th>Out</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Member #</th><th>Contact</th><th>Title</th><th>Committee</th><th>Groups</th><th>Out</th><th></th></tr></thead>
     <tbody>${data.rows.map(l => `
       <tr>
-        <td><b>${esc(l.full_name)}</b></td>
+        <td><b>${esc(l.full_name)}</b>${l.status === 'inactive'
+            ? `<div class="small" style="color:var(--amber)">Inactive — ${esc(l.status_reason || 'deactivated')}</div>` : ''}</td>
+        <td class="small mono">${esc(l.member_number || '—')}</td>
         <td class="small">${[l.email, l.phone_mobile && fmtPhone(l.phone_mobile)].filter(Boolean).map(esc).join('<br>') || '<span class="muted">—</span>'}</td>
-        <td class="small">${esc(l.position || '—')}</td>
+        <td class="small">${esc(l.title || l.position || '—')}</td>
         <td class="small">${esc(l.sub_committee || '—')}</td>
         <td class="small">${(l.group_names || []).map(g => `<span class="class-chip class-exec">${esc(g)}</span>`).join(' ') || '<span class="muted">—</span>'}</td>
         <td>${l.items_out ? `<span class="badge badge-active">${l.items_out}</span>` : ''}</td>
@@ -92,10 +94,19 @@ function loaneeFields(l) {
         <input class="form-input" name="phone_mobile" value="${esc(l.phone_mobile || '')}" placeholder="713-555-0142" /></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Position</label>
-        <input class="form-input" name="position" value="${esc(l.position || '')}" placeholder="Committee Member" /></div>
-      <div class="form-group"><label class="form-label">Sub-committee</label>
+      <div class="form-group"><label class="form-label">Member number</label>
+        <input class="form-input mono" name="member_number" value="${esc(l.member_number || '')}"
+               placeholder="1175843" />
+        <div class="small muted">Customer Number from the roster. This is what a roster
+          re-import matches on — changing it will orphan this record from the roster.</div></div>
+      <div class="form-group"><label class="form-label">Title</label>
+        <input class="form-input" name="title" value="${esc(l.title || '')}" placeholder="Committee Member" /></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Committee</label>
         <input class="form-input" name="sub_committee" value="${esc(l.sub_committee || '')}" /></div>
+      <div class="form-group"><label class="form-label">Position</label>
+        <input class="form-input" name="position" value="${esc(l.position || '')}" /></div>
     </div>
     <div class="form-group"><label class="form-label">Notes</label>
       <textarea class="form-input" name="notes" rows="2">${esc(l.notes || '')}</textarea></div>`;
@@ -296,7 +307,11 @@ async function removeMember(groupId, loaneeId) {
 }
 
 // ══ App users ══════════════════════════════════════════════════
-const ROLE_LABEL = { admin: 'Administrator', staff: 'Counter staff', leader: 'Leadership' };
+// 'staff' is the stored value; 'Base' is what everyone at the grounds
+// calls it. Renaming the stored value would mean migrating the CHECK
+// constraint, every JWT in circulation and every route guard for a
+// wording change, so the mapping lives here instead.
+const ROLE_LABEL = { admin: 'Administrator', staff: 'Base', leader: 'Leadership' };
 
 async function loadUsers() {
   const { data, error } = await api('/users');
@@ -337,7 +352,7 @@ function userFields(u) {
           `<option value="${v}"${u.role === v ? ' selected' : ''}>${l}</option>`).join('')}
       </select>
       <div class="small muted" style="margin-top:6px">
-        Administrators manage everything. Counter staff check equipment in and out.
+        Administrators manage everything. Base members check equipment in and out.
         Leadership can only view what's out.
       </div>
     </div>`;
@@ -520,7 +535,7 @@ async function loadSettings() {
         <label class="form-label">Default loan length (hours)</label>
         <input class="form-input" id="s-hours" type="number" min="0" max="8760" value="${data.default_loan_hours ?? 12}" />
         <div class="small muted" style="margin-top:6px">
-          Pre-fills the due date at check-out. Staff can always change it. Set 0 for no default due date.
+          Pre-fills the due date at check-out. Base members can always change it. Set 0 for no default due date.
         </div>
       </div>
       <div class="form-group">
