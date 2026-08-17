@@ -52,7 +52,20 @@ app.http('rosterPreview', {
     }
 
     const headers = Array.isArray(body.headers) ? body.headers : Object.keys(rows[0] || {});
-    const { map, unknown } = R.buildRosterMap(headers);
+
+    // Saved mapping from the last confirmed import, so a changed export
+    // format is fixed once rather than re-mapped every month.
+    const cfg = await query(
+      `SELECT roster_column_map, roster_groups_seeded_at FROM public.app_settings WHERE id = 1`);
+    const savedMap = cfg.rows[0]?.roster_column_map || null;
+    const { map, detected, unknown } = R.resolveMap(headers, savedMap, body.column_map);
+
+    // Record the mapping this batch was previewed with, so commit saves
+    // exactly what the admin saw rather than re-deriving it from headers
+    // that may have been re-sent differently.
+    await query(
+      `UPDATE public.import_batches SET options = coalesce(options,'{}'::jsonb) || $2::jsonb
+       WHERE id = $1`, [batchId, JSON.stringify({ column_map: map })]);
 
     // Bail early and legibly rather than marking 493 rows as errors.
     if (!Object.values(map).includes('member_number')) {
@@ -69,8 +82,7 @@ app.http('rosterPreview', {
     const byNumber = new Map(existing.rows.map(r => [r.member_number, r]));
 
     // Whether groups may still be auto-created. Only ever true once.
-    const st = await query(`SELECT roster_groups_seeded_at FROM public.app_settings WHERE id = 1`);
-    const groupsAlreadySeeded = !!st.rows[0]?.roster_groups_seeded_at;
+    const groupsAlreadySeeded = !!cfg.rows[0]?.roster_groups_seeded_at;
 
     const existingGroups = await query(`SELECT lower(name) AS lname FROM public.groups`);
     const haveGroup = new Set(existingGroups.rows.map(g => g.lname));
@@ -196,6 +208,10 @@ app.http('rosterPreview', {
                             normalized: r.normalized, changes: r.changes })),
       summary: totals,
       final: body.final === true,
+      column_map: map,
+      detected_map: detected,
+      saved_map: savedMap,
+      mappable_fields: R.MAPPABLE_FIELDS,
       unknown_columns: unknown,
       subcommittees: allSubcommittees.sort(),
       // Groups are only offered on the very first roster import.
@@ -359,6 +375,17 @@ app.http('rosterCommit', {
       await client.query(
         `UPDATE public.import_batches SET status = 'committed', committed_at = now() WHERE id = $1`,
         [batchId]);
+
+      // The mapping the admin actually approved becomes the default for
+      // next time. Saved on COMMIT, not on preview, so abandoning a
+      // preview never changes the saved default.
+      const approvedMap = batch.options?.column_map;
+      if (approvedMap && Object.keys(approvedMap).length) {
+        await client.query(
+          `UPDATE public.app_settings
+           SET roster_column_map = $1::jsonb, roster_map_saved_at = now(), updated_by = $2
+           WHERE id = 1`, [JSON.stringify(approvedMap), user.sub]);
+      }
 
       if (seededNow) {
         await logAudit(request, {
