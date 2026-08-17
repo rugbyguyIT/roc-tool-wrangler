@@ -70,6 +70,31 @@ if [[ -f "$SECRETS_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$SECRETS_FILE"
   ok "Re-using the secrets already in $SECRETS_FILE"
+elif az staticwebapp show -g "$RG" -n "$SWA_NAME" >/dev/null 2>&1 && \
+     [[ -n "$(az staticwebapp appsettings list -g "$RG" -n "$SWA_NAME" \
+              --query "properties.DATABASE_URL" -o tsv 2>/dev/null)" ]]; then
+  # ── Already deployed, but no local secrets file ─────────────────────
+  # This is the dangerous case, and the reason it is handled explicitly:
+  # Cloud Shell is ephemeral, so a later run starts with no
+  # .azure-secrets.env. Generating fresh secrets here would skip creating
+  # the server (it exists) and then overwrite DATABASE_URL with a password
+  # the server does not have — taking the live app down — and rotate
+  # JWT_SECRET, signing everyone out. So: adopt what is already deployed
+  # rather than inventing new values.
+  ok "No local secrets file, but $SWA_NAME is already configured — adopting its settings"
+  EXISTING_DB_URL=$(az staticwebapp appsettings list -g "$RG" -n "$SWA_NAME" \
+                    --query "properties.DATABASE_URL" -o tsv)
+  JWT_SECRET=$(az staticwebapp appsettings list -g "$RG" -n "$SWA_NAME" \
+               --query "properties.JWT_SECRET" -o tsv)
+  BOOTSTRAP_SECRET=$(az staticwebapp appsettings list -g "$RG" -n "$SWA_NAME" \
+                     --query "properties.BOOTSTRAP_SECRET" -o tsv 2>/dev/null || echo "")
+  # Recover the password from the connection string rather than guessing:
+  #   postgresql://user:PASSWORD@host:5432/db?sslmode=require
+  DB_PASSWORD=$(printf '%s' "$EXISTING_DB_URL" | sed -E 's|^[^:]+://[^:]+:([^@]+)@.*|\1|')
+  [[ -n "$DB_PASSWORD" && "$DB_PASSWORD" != "$EXISTING_DB_URL" ]] \
+    || die "Could not read the database password out of the deployed DATABASE_URL. Recover .azure-secrets.env, or reset the password in the portal."
+  ADOPTED=1
+  ok "Database password, JWT secret and bootstrap secret recovered from the deployment"
 else
   # Alphanumeric on purpose: a password containing $ ! @ / or : turns every
   # connection string into a quoting exercise and eventually someone pastes
@@ -97,6 +122,7 @@ BOOTSTRAP_SECRET='$BOOTSTRAP_SECRET'
 EOF
   ok "Generated new secrets → $SECRETS_FILE"
 fi
+ADOPTED="${ADOPTED:-0}"
 
 # ── 1. Resource group ──────────────────────────────────────────────────
 step "1/8  Resource group: $RG"
@@ -236,13 +262,18 @@ ok "URL: $APP_URL"
 # start, rather than booting once without a database and erroring.
 step "7/8  Application settings"
 DATABASE_URL="postgresql://${DB_ADMIN}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}?sslmode=require"
-az staticwebapp appsettings set -g "$RG" -n "$SWA_NAME" --setting-names \
-  "DATABASE_URL=$DATABASE_URL" \
-  "JWT_SECRET=$JWT_SECRET" \
-  "BOOTSTRAP_SECRET=$BOOTSTRAP_SECRET" \
-  "AZURE_STORAGE_CONNECTION_STRING=$STORAGE_CONN" \
-  --output none
-ok "DATABASE_URL · JWT_SECRET · BOOTSTRAP_SECRET · AZURE_STORAGE_CONNECTION_STRING"
+SETTINGS=( "DATABASE_URL=$DATABASE_URL" "JWT_SECRET=$JWT_SECRET"
+           "AZURE_STORAGE_CONNECTION_STRING=$STORAGE_CONN" )
+# Only ever re-add the bootstrap secret if there still is one. Putting it
+# back on a re-run would silently reopen the account-creation endpoint
+# that step 4 told you to close.
+if [[ -n "${BOOTSTRAP_SECRET:-}" ]]; then
+  SETTINGS+=( "BOOTSTRAP_SECRET=$BOOTSTRAP_SECRET" )
+else
+  warn "BOOTSTRAP_SECRET is already deleted — leaving it that way"
+fi
+az staticwebapp appsettings set -g "$RG" -n "$SWA_NAME" --setting-names "${SETTINGS[@]}" --output none
+ok "Applied ${#SETTINGS[@]} setting(s)"
 
 grep -q '^DATABASE_URL=' "$SECRETS_FILE" 2>/dev/null || {
   printf "DATABASE_URL='%s'\nAPP_URL='%s'\n" "$DATABASE_URL" "$APP_URL" >> "$SECRETS_FILE"
