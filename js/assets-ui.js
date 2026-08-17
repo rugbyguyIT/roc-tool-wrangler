@@ -278,12 +278,14 @@ function renderTopNav() {
     items = link('/pages/staff.html', 'fa-right-left', 'Check In / Out')
       + link('/pages/board.html', 'fa-tower-observation', 'Out Now')
       + link('/pages/assets.html', 'fa-boxes-stacked', 'Assets')
+      + link('/pages/loanees.html', 'fa-users', 'Loanees')
       + link('/pages/reports.html', 'fa-chart-line', 'Reports')
       + link('/pages/admin.html', 'fa-gear', 'Admin');
   } else if (prof.role === 'staff') {
     items = link('/pages/staff.html', 'fa-right-left', 'Check In / Out')
       + link('/pages/board.html', 'fa-tower-observation', 'Out Now')
-      + link('/pages/assets.html', 'fa-boxes-stacked', 'Assets');
+      + link('/pages/assets.html', 'fa-boxes-stacked', 'Assets')
+      + link('/pages/loanees.html', 'fa-users', 'Loanees');
   } else if (prof.role === 'leader') {
     items = link('/pages/board.html', 'fa-tower-observation', 'Out Now')
       + link('/pages/assets.html', 'fa-boxes-stacked', 'Assets');
