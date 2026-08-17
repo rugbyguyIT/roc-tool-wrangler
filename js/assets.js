@@ -125,6 +125,9 @@ async function openAsset(id) {
   const actions = [];
   if (canService) {
     if (a.status === 'available') actions.push(`<button class="btn btn-sm" onclick="assetAction('${a.id}','maintenance_start')"><i class="fa-solid fa-screwdriver-wrench"></i> To maintenance</button>`);
+    // Distinct from "To maintenance": that just flags it unavailable here,
+    // this records that it has physically gone to a shop and who has it.
+    if (['available', 'maintenance'].includes(a.status)) actions.push(`<button class="btn btn-sm" onclick="sendForRepair('${a.id}','${esc(a.asset_tag)}')"><i class="fa-solid fa-truck-ramp-box"></i> Send for repair</button>`);
     if (a.status === 'maintenance') actions.push(`<button class="btn btn-sm btn-success" onclick="assetAction('${a.id}','maintenance_end')"><i class="fa-solid fa-circle-check"></i> Back in service</button>`);
   }
   if (isAdmin) {
