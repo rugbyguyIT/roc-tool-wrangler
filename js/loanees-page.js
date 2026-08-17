@@ -23,9 +23,11 @@ let PAGE_IDS = [];      // ids in the order currently on screen
 let LAST_CLICKED = null; // index of the last ticked row, for shift-range
 
 const COLUMNS = [
-  { key: 'last_name',     label: 'Name' },
+  { key: 'first_name',    label: 'First' },
+  { key: 'last_name',     label: 'Last' },
   { key: 'member_number', label: 'Member #' },
-  { key: 'email',         label: 'Contact' },
+  { key: 'email',         label: 'Email' },
+  { key: 'phone_mobile',  label: 'Phone' },
   { key: 'title',         label: 'Title' },
   { key: 'sub_committee', label: 'Committee' },
   { key: null,            label: 'Groups' },
@@ -91,11 +93,12 @@ async function loadLoanees() {
       <tr${SELECTED.has(l.id) ? ' class="is-selected"' : ''}>
         <td><input type="checkbox" ${SELECTED.has(l.id) ? 'checked' : ''}
           onclick="rowTick(event, ${i}, '${l.id}')" /></td>
-        <td><b>${esc(l.full_name)}</b>${l.status === 'inactive'
+        <td><b>${esc(l.first_name || '')}</b>${l.status === 'inactive'
           ? `<div class="small" style="color:var(--amber)">Inactive — ${esc(l.status_reason || 'deactivated')}</div>` : ''}</td>
+        <td><b>${esc(l.last_name || '')}</b></td>
         <td class="small mono">${esc(l.member_number || '—')}</td>
-        <td class="small">${[l.email, l.phone_mobile && fmtPhone(l.phone_mobile)]
-          .filter(Boolean).map(esc).join('<br>') || '<span class="muted">—</span>'}</td>
+        <td class="small">${l.email ? esc(l.email) : '<span class="muted">—</span>'}</td>
+        <td class="small">${l.phone_mobile ? esc(fmtPhone(l.phone_mobile)) : '<span class="muted">—</span>'}</td>
         <td class="small">${esc(l.title || l.position || '—')}</td>
         <td class="small">${esc(l.sub_committee || '—')}</td>
         <td class="small">${(l.group_names || []).map(g =>
