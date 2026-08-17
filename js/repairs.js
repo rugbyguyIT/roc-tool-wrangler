@@ -19,7 +19,7 @@ async function loadShops(force) {
 }
 
 // ── Send ───────────────────────────────────────────────────────────────
-async function sendForRepair(assetId, assetLabel) {
+async function sendForRepair(assetId, assetLabel, defaultShopId) {
   const shops = await loadShops();
   if (!shops.length) {
     return toastMsg('No repair shops yet',
@@ -42,8 +42,12 @@ async function sendForRepair(assetId, assetLabel) {
     <div class="form-row">
       <div class="form-group"><label class="form-label">Who's fixing it?</label>
         <select class="form-input" name="shop_id">
-          ${shops.map(s => `<option value="${s.id}">${esc(s.name)}${s.is_internal ? '' : ' (outside)'}</option>`).join('')}
-        </select></div>
+          ${shops.map(s => `<option value="${s.id}"${s.id === defaultShopId ? ' selected' : ''}>${
+            esc(s.name)}${s.is_internal ? '' : ' (outside)'}</option>`).join('')}
+        </select>
+        <div class="small muted">${defaultShopId
+          ? 'Pre-set from this asset’s type — change it if someone else is doing the work.'
+          : 'No default for this type. Set one under Admin → Lookups.'}</div></div>
       <div class="form-group"><label class="form-label">Expected back</label>
         <input class="form-input" type="datetime-local" name="expected_back" value="${dueLocal}" />
         <div class="small muted">Leave it if you don't know — it just drives the overdue flag.</div></div>
