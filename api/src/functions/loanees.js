@@ -37,6 +37,26 @@ app.http('loaneesList', {
     const groupId = uuidOrNull(p.get('group_id'));
     const sub = p.get('sub_committee');
     const st = ['active', 'inactive'].includes(p.get('status')) ? p.get('status') : 'active';
+    // Whitelist, not interpolation: `sort` reaches SQL as a key into a
+    // fixed map, so a crafted value can only ever miss and fall back.
+    const SORTS = {
+      last_name:     'ln.last_name, ln.first_name',
+      first_name:    'ln.first_name, ln.last_name',
+      full_name:     'ln.full_name',
+      member_number: 'ln.member_number',
+      email:         'ln.email',
+      phone_mobile:  'ln.phone_mobile',
+      title:         'ln.title',
+      sub_committee: 'ln.sub_committee',
+      status:        'ln.status, ln.last_name',
+    };
+    const sortKey = SORTS[p.get('sort')] ? p.get('sort') : 'last_name';
+    const dir = p.get('dir') === 'desc' ? 'DESC' : 'ASC';
+    // NULLS LAST in both directions: a blank member number should never be
+    // the first thing you see when you sort by it.
+    const orderBy = SORTS[sortKey].split(', ')
+      .map(c => `${c} ${dir} NULLS LAST`).join(', ');
+
     const limit = Math.min(parseInt(p.get('limit') || '100', 10) || 100, 500);
     const offset = Math.max(parseInt(p.get('offset') || '0', 10) || 0, 0);
 
@@ -58,10 +78,10 @@ app.http('loaneesList', {
                         FROM public.group_members gm JOIN public.groups g ON g.id = gm.group_id
                         WHERE gm.loanee_id = ln.id), '{}') AS group_names
        FROM public.loanees ln ${where}
-       ORDER BY ln.last_name, ln.first_name
+       ORDER BY ${orderBy}
        LIMIT $5 OFFSET $6`, [...params, limit, offset]);
     const total = await query(`SELECT count(*)::int AS n FROM public.loanees ln ${where}`, params);
-    return json({ rows: rows.rows, total: total.rows[0].n });
+    return json({ rows: rows.rows, total: total.rows[0].n, sort: sortKey, dir: dir.toLowerCase() });
   },
 });
 
@@ -312,3 +332,115 @@ app.http('loaneesDelete', {
 });
 
 module.exports = {};
+
+// ═══════════════════════════════════════════════════════════════════════
+// Bulk removal.
+//
+// Two rules run through both routes below, and they are the whole design:
+//
+//  1. A loanee who has EVER been on a loan is never hard-deleted. The
+//     loans table references them without ON DELETE, so removing them
+//     would either fail or, worse, take the loan history with it. Those
+//     people are deactivated instead — they vanish from pickers, and who
+//     had the forklift in 2025 is still answerable.
+//
+//  2. Everyone else is genuinely deleted, because a roster loaded from the
+//     wrong file should be removable without leaving 493 tombstones.
+//
+// Both routes report the split, so "delete" never quietly means something
+// other than what was clicked.
+// ═══════════════════════════════════════════════════════════════════════
+async function removeLoanees(client, ids, reason) {
+  if (!ids.length) return { deleted: 0, deactivated: 0, deactivated_names: [] };
+
+  const withHistory = await client.query(
+    `SELECT DISTINCT l.loanee_id FROM public.loans l WHERE l.loanee_id = ANY($1::uuid[])`, [ids]);
+  const keep = new Set(withHistory.rows.map(r => r.loanee_id));
+  const deletable = ids.filter(id => !keep.has(id));
+  const keepable = ids.filter(id => keep.has(id));
+
+  let deactivatedNames = [];
+  if (keepable.length) {
+    const r = await client.query(
+      `UPDATE public.loanees SET status = 'inactive', status_reason = $2, updated_at = now()
+       WHERE id = ANY($1::uuid[]) AND status <> 'inactive' RETURNING full_name`,
+      [keepable, reason]);
+    deactivatedNames = r.rows.map(x => x.full_name);
+  }
+  if (deletable.length) {
+    // group_members cascades; asset_events null out their loanee_id.
+    await client.query(`DELETE FROM public.loanees WHERE id = ANY($1::uuid[])`, [deletable]);
+  }
+  return { deleted: deletable.length, deactivated: keepable.length, deactivated_names: deactivatedNames };
+}
+
+app.http('loaneesBulkDelete', {
+  methods: ['POST'], authLevel: 'anonymous', route: 'loanees/bulk-delete',
+  handler: async (request) => {
+    const { user, error, status } = await requireRole(request, 'admin');
+    if (error) return err(error, status);
+    const { body, bad } = await readJson(request); if (bad) return bad;
+
+    const ids = (Array.isArray(body?.ids) ? body.ids : []).map(uuidOrNull).filter(Boolean);
+    if (!ids.length) return err('Select at least one person first');
+    if (ids.length > 1000) return err('That is more than 1000 people — use Clear roster instead');
+
+    const out = await withTransaction(c =>
+      removeLoanees(c, ids, `removed by ${user.email || 'an admin'} on ${new Date().toISOString().slice(0, 10)}`));
+
+    await logAudit(request, {
+      profile_id: user.sub, email: user.email, full_name: user.name,
+      action: 'loanees_bulk_removed',
+      detail: `${out.deleted} deleted, ${out.deactivated} deactivated (had loan history)`,
+    });
+    return json(out);
+  },
+});
+
+app.http('loaneesClearRoster', {
+  methods: ['POST'], authLevel: 'anonymous', route: 'loanees/clear-roster',
+  handler: async (request) => {
+    const { user, error, status } = await requireRole(request, 'admin');
+    if (error) return err(error, status);
+    const { body, bad } = await readJson(request); if (bad) return bad;
+
+    // Typed confirmation first — cheapest check, and the one most likely
+    // to catch a misclick.
+    if (String(body?.confirm || '').trim() !== 'DELETE') {
+      return err('Type DELETE exactly to confirm.');
+    }
+
+    // The PIN is verified in the database against a bcrypt hash, so it is
+    // never present in anything the browser downloads.
+    const pin = String(body?.pin || '').trim();
+    if (!pin) return err('The PIN is required.');
+    const ok = await query(
+      `SELECT roster_clear_pin_hash IS NOT NULL
+          AND roster_clear_pin_hash = crypt($1, roster_clear_pin_hash) AS ok
+       FROM public.app_settings WHERE id = 1`, [pin]);
+    if (!ok.rows[0]?.ok) {
+      await logAudit(request, {
+        profile_id: user.sub, email: user.email, full_name: user.name,
+        action: 'roster_clear_denied', detail: 'wrong PIN',
+      });
+      return err('That PIN is not correct.', 403);
+    }
+
+    const out = await withTransaction(async (c) => {
+      const all = await c.query(`SELECT id FROM public.loanees`);
+      const res = await removeLoanees(c, all.rows.map(r => r.id),
+        `roster cleared by ${user.email || 'an admin'} on ${new Date().toISOString().slice(0, 10)}`);
+      // Let the next roster import seed groups again — clearing the roster
+      // is exactly the case where starting over is the intent.
+      await c.query(`UPDATE public.app_settings SET roster_groups_seeded_at = NULL WHERE id = 1`);
+      return res;
+    });
+
+    await logAudit(request, {
+      profile_id: user.sub, email: user.email, full_name: user.name,
+      action: 'roster_cleared',
+      detail: `${out.deleted} deleted, ${out.deactivated} deactivated (had loan history)`,
+    });
+    return json(out);
+  },
+});
