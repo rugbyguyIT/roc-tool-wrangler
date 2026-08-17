@@ -33,14 +33,14 @@ async function sendForRepair(assetId, assetLabel, defaultShopId) {
 
   formModal(`Send for repair — ${esc(assetLabel || '')}`, `
     <div class="form-group">
-      <label class="form-label">What's wrong with it? *</label>
+      <label class="form-label">A field that asks what's wrong first *</label>
       <textarea class="form-input" name="reported_fault" rows="2" required
         placeholder="Hydraulic leak, drops the load"></textarea>
       <div class="small muted">Whoever picks this up needs to know, and so does whoever
         reads the history in six months.</div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Who's fixing it?</label>
+      <div class="form-group"><label class="form-label">Who is fixing it</label>
         <select class="form-input" name="shop_id">
           ${shops.map(s => `<option value="${s.id}"${s.id === defaultShopId ? ' selected' : ''}>${
             esc(s.name)}${s.is_internal ? '' : ' (outside)'}</option>`).join('')}
