@@ -503,3 +503,55 @@ a{color:var(--orange);text-decoration:none} a:hover{text-decoration:underline}
   .stat-grid{grid-template-columns:repeat(2,1fr)}.form-row{grid-template-columns:1fr}
   .cmd-stats{flex-wrap:wrap}.cmd-stat{min-width:40%}
 }
+
+
+/* ── Roster column mapping ──────────────────────────────────────────────
+   Two panels: the spreadsheet's columns on the left, the app's fields on
+   the right. Drag to connect. Tap-to-select then tap-to-place is a real
+   fallback, not a nicety — HTML5 drag-and-drop does not fire on touch,
+   and this gets used on a phone at the grounds. */
+.map-wrap { display:flex; gap:12px; flex-wrap:wrap; }
+.map-col { flex:1 1 220px; min-width:0; }
+.map-col-head {
+  font-size:12px; font-weight:600; text-transform:uppercase;
+  letter-spacing:.04em; color:var(--muted2); margin-bottom:8px;
+}
+.map-list { max-height:340px; overflow:auto; padding-right:2px; }
+
+.map-chip {
+  border:1px solid var(--line); border-radius:8px; padding:8px 10px;
+  margin-bottom:6px; background:rgba(255,255,255,0.82); cursor:grab;
+  transition:border-color .12s, transform .12s, background .12s;
+}
+.map-chip:active { cursor:grabbing; }
+.map-chip:hover { border-color:var(--accent); }
+.map-chip.is-picked {
+  border-color:var(--accent); background:var(--orangeglow);
+  transform:translateX(2px);
+}
+.map-chip-name { font-weight:600; font-size:13px; word-break:break-word; color:var(--text); }
+.map-chip-sample {
+  font-size:11px; color:var(--muted2); margin-top:2px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+
+.map-slot {
+  border:1px dashed var(--line); border-radius:8px; padding:8px 10px;
+  background:rgba(255,255,255,0.55);
+  margin-bottom:6px; min-height:46px; transition:border-color .12s, background .12s;
+}
+.map-slot.is-over { border-color:var(--accent); background:var(--orangeglow); }
+.map-slot.is-filled { border-style:solid; }
+.map-slot.is-required:not(.is-filled) { border-color:var(--red); }
+.map-slot-label { font-size:12px; color:var(--muted); }
+.map-slot-req { color:var(--red); }
+.map-slot-value {
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  margin-top:3px; font-weight:600; font-size:13px; color:var(--text);
+}
+.map-slot-clear {
+  border:0; background:transparent; color:var(--muted2);
+  cursor:pointer; padding:2px 4px; line-height:1;
+}
+.map-slot-clear:hover { color:var(--red); }
+.map-empty { font-size:12px; color:var(--muted2); padding:10px 2px; }
