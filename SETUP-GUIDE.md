@@ -107,8 +107,16 @@ Then apply the roster migration, which adds Member Number, Title and the roster-
 psql "$DATABASE_URL" -f api/migrations/002_roster.sql
 ```
 
-Also idempotent. `scripts/setup-azure.sh` runs both for you on a fresh install; you only need these
-by hand when upgrading an environment that already exists.
+Then the repairs migration, which adds the Buildings and Grounds workflow and the saved roster
+column mapping:
+
+```bash
+psql "$DATABASE_URL" -f api/migrations/003_repairs.sql
+```
+
+All three are idempotent. `scripts/setup-azure.sh` applies every migration in `api/migrations/` in
+order on a fresh install; you only need these by hand when upgrading an environment that already
+exists.
 
 Expect a wall of `CREATE TABLE` / `CREATE INDEX`. If you see
 `ERROR: extension "pg_trgm" is not allow-listed`, go back and do step 1.3.
