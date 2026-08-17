@@ -8,6 +8,7 @@
 // when the wifi drops.
 // ─────────────────────────────────────────────────────────────
 const me = requireLogin('leader', 'staff', 'admin');
+let REPAIRS = [];
 
 const POLL_MS = 60000;
 let ROWS = [];
@@ -84,12 +85,50 @@ function renderFeed() {
   }).join('');
 }
 
-function renderAll() { renderStats(); renderFilters(); renderFeed(); }
+function renderRepairs() {
+  const el = document.getElementById('repair-feed');
+  if (!el) return;
+  const rows = REPAIRS || [];
+  if (!rows.length) { el.innerHTML = ''; return; }
+
+  el.innerHTML = `
+    <div style="margin:22px 0 10px;display:flex;align-items:center;gap:10px">
+      <i class="fa-solid fa-screwdriver-wrench" style="color:var(--amber)"></i>
+      <div style="font-weight:600">At repair</div>
+      <span class="badge badge-neutral">${rows.length}</span>
+    </div>
+    ${rows.map(r => {
+      const days = r.days_out != null ? Math.floor(r.days_out) : null;
+      return `<div class="event-card${r.overdue ? ' is-overdue' : ''}">
+        <div style="display:flex;justify-content:space-between;gap:12px">
+          <div>
+            <div style="font-weight:600">${esc(r.asset_tag)} — ${esc(r.asset_title || '')}</div>
+            <div class="small muted">${esc(r.reported_fault || '')}</div>
+            <div class="small" style="margin-top:4px">
+              <i class="fa-solid fa-screwdriver-wrench"></i> ${esc(r.shop_name || 'Unassigned')}
+            </div>
+          </div>
+          <div style="text-align:right;white-space:nowrap">
+            <div class="small muted">${days != null ? days + ' day' + (days === 1 ? '' : 's') : ''}</div>
+            ${r.overdue ? '<div class="small" style="color:var(--red)">Overdue back</div>' : ''}
+          </div>
+        </div>
+      </div>`;
+    }).join('')}`;
+}
+
+function renderAll() { renderStats(); renderFilters(); renderFeed(); renderRepairs(); }
 
 async function refresh(manual) {
   const icon = document.getElementById('refresh-icon');
   if (manual) icon.classList.add('fa-spin');
-  const { data, error } = await api('/loans/open');
+  const [{ data, error }, rep] = await Promise.all([
+    api('/loans/open'),
+    // Failure here must not blank the loan board, so it is tolerated
+    // separately rather than sharing the error path below.
+    api('/repairs?state=open').catch(() => ({ data: null })),
+  ]);
+  if (rep && rep.data) REPAIRS = rep.data.rows || [];
   if (manual) setTimeout(() => icon.classList.remove('fa-spin'), 400);
 
   if (error) {
