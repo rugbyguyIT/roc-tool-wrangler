@@ -1,8 +1,8 @@
-// ─────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────
 // HLSR Asset Tracker — asset browse + detail.
 // Readable by every role; editing is admin-only and the buttons simply
 // aren't rendered for anyone else (the API enforces it for real).
-// ─────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────
 const me = requireLogin();
 const isAdmin = me && me.role === 'admin';
 const canService = me && ['admin', 'staff'].includes(me.role);
@@ -82,7 +82,7 @@ function render() {
     </table></div>`;
 }
 
-// ── Detail ─────────────────────────────────────────────────────
+// ── Detail ───────────────────────────────────────────────────
 async function openAsset(id) {
   const { data: a, error } = await api(`/assets/${id}`);
   if (error) return toastMsg('Could not open that asset', error, 'error');
@@ -159,7 +159,7 @@ async function assetAction(id, action) {
     reason = await promptModal(
       action === 'retire'
         ? 'This is recorded permanently against the asset.'
-        : 'What needs doing? Staff will see this on the asset.',
+        : 'What needs doing? Base members will see this on the asset.',
       { title: action === 'retire' ? 'Why retire it?' : 'What\'s wrong with it?', required: true, multiline: true });
     if (!reason) return;
   }
@@ -170,7 +170,7 @@ async function assetAction(id, action) {
   load();
 }
 
-// ── Admin editing ──────────────────────────────────────────────
+// ── Admin editing ─────────────────────────────────────────
 function assetFormFields(a) {
   a = a || {};
   const opts = (list, sel) => `<option value="">—</option>` +
@@ -310,7 +310,7 @@ async function removePhoto(assetId, photoId) {
   load();
 }
 
-// ── Boot ───────────────────────────────────────────────────────
+// ── Boot ────────────────────────────────────────────────────
 (async function init() {
   if (!me) return;
   if (isAdmin) {

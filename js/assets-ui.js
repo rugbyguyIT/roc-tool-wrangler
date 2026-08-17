@@ -6,7 +6,7 @@
 //   · confirmModal / promptModal / formModal  — styled replacements for
 //     the browser's native dialogs, all Promise-based
 //   · renderTopNav()   role-aware nav for pages that don't hardcode it
-// ─────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────
 
 // Single source of truth for status appearance. Add a status here and
 // every screen picks it up.
@@ -103,11 +103,11 @@ function eventLine(e) {
   </li>`;
 }
 
-// ─────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────
 // Modals — styled replacements for confirm()/prompt(), Promise-based so
 // call sites just await them. Styles are injected once rather than added
 // to style.css so this file stays self-contained.
-// ─────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────
 (function injectModalStyles() {
   if (document.getElementById('ui-modal-styles')) return;
   const s = document.createElement('style');
@@ -260,7 +260,7 @@ function formValues(form) {
   return o;
 }
 
-// ── Shared top nav ─────────────────────────────────────────────
+// ── Shared top nav ────────────────────────────────────
 // Fills any EMPTY .topnav-links with the right links for the signed-in
 // role, so the menu persists as you move between pages. admin.html
 // hardcodes its own (its tabs are in-page view switches, not URLs), and
@@ -299,7 +299,7 @@ function renderUserChip() {
   const roleEl = document.getElementById('user-role-label');
   const avatar = document.getElementById('user-avatar');
   if (nameEl) nameEl.textContent = prof.full_name || prof.email;
-  if (roleEl) roleEl.textContent = { admin: 'Administrator', staff: 'Counter staff', leader: 'Leadership' }[prof.role] || prof.role;
+  if (roleEl) roleEl.textContent = { admin: 'Administrator', staff: 'Base', leader: 'Leadership' }[prof.role] || prof.role;
   if (avatar) {
     const initials = (prof.full_name || prof.email || '?').split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase();
     avatar.innerHTML = prof.photo_url
