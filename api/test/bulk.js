@@ -78,6 +78,13 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
                         public.app_logs, public.import_rows, public.import_batches,
                         public.notification_outbox RESTART IDENTITY CASCADE`);
   await query(`INSERT INTO public.app_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+
+  // TRUNCATE ... CASCADE above reaches asset_categories and asset_locations
+  // through their created_by FK, and the smoke suite expects the migration's
+  // seed lists to be present. Restore them rather than leaving the database
+  // in a state that fails whichever suite runs next.
+  await query(require('fs').readFileSync(require('path').join(__dirname, 'seed-lookups.sql'), 'utf8'));
+
   await query(`UPDATE public.app_settings SET roster_clear_pin_hash = crypt('1932', gen_salt('bf')) WHERE id = 1`);
 
   await call('POST', 'auth/bootstrap', { bootstrap_secret: process.env.BOOTSTRAP_SECRET || 'boot',
