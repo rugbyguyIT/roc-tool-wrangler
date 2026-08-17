@@ -469,6 +469,9 @@ async function saveSettings() {
   };
   const { error } = await api('/settings', 'PATCH', body);
   if (error) return toastMsg('Could not save', error, 'error');
+  // Repaint the header straight away. Renaming the app and seeing the old
+  // name still in the corner is the bug this whole path exists to fix.
+  if (typeof refreshBrand === 'function') await refreshBrand();
   toastMsg('Settings saved', '', 'ok');
   loadSettings();
 }
