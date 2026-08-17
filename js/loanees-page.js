@@ -12,8 +12,25 @@
 const me = requireLogin('staff', 'admin');
 
 const PAGE_SIZES = [25, 50, 100, 250, 500];
-let LN = { q: '', groupId: '', status: 'active', limit: 25, offset: 0, total: 0 };
+let LN = { q: '', groupId: '', status: 'active', limit: 25, offset: 0, total: 0,
+           sort: 'last_name', dir: 'asc' };
 let GROUPS = [];
+
+// Selection survives paging: tick five people, go to page 2, tick five
+// more, delete ten. Anything else is a trap when the list is 493 long.
+let SELECTED = new Set();
+let PAGE_IDS = [];      // ids in the order currently on screen
+let LAST_CLICKED = null; // index of the last ticked row, for shift-range
+
+const COLUMNS = [
+  { key: 'last_name',     label: 'Name' },
+  { key: 'member_number', label: 'Member #' },
+  { key: 'email',         label: 'Contact' },
+  { key: 'title',         label: 'Title' },
+  { key: 'sub_committee', label: 'Committee' },
+  { key: null,            label: 'Groups' },
+  { key: null,            label: 'Out' },
+];
 
 async function loadGroups() {
   const { data } = await api('/groups');
@@ -32,6 +49,7 @@ async function loadLoanees() {
 
   const p = new URLSearchParams({
     limit: String(LN.limit), offset: String(LN.offset), status: LN.status,
+    sort: LN.sort, dir: LN.dir,
   });
   if (LN.q) p.set('q', LN.q);
   if (LN.groupId) p.set('group_id', LN.groupId);
@@ -51,13 +69,28 @@ async function loadLoanees() {
     return;
   }
 
+  PAGE_IDS = rows.map(l => l.id);
+
+  const head = COLUMNS.map(c => {
+    if (!c.key) return `<th>${c.label}</th>`;
+    const active = LN.sort === c.key;
+    const arrow = active ? (LN.dir === 'asc' ? ' ▲' : ' ▼') : '';
+    return `<th class="th-sort${active ? ' is-sorted' : ''}" onclick="sortBy('${c.key}')"
+      title="Sort by ${c.label}">${c.label}${arrow}</th>`;
+  }).join('');
+
+  const allOnPageTicked = rows.length > 0 && rows.every(l => SELECTED.has(l.id));
+
   el.innerHTML = `<div style="overflow-x:auto"><table class="tbl">
     <thead><tr>
-      <th>Name</th><th>Member #</th><th>Contact</th><th>Title</th>
-      <th>Committee</th><th>Groups</th><th>Out</th><th></th>
+      <th style="width:34px"><input type="checkbox" ${allOnPageTicked ? 'checked' : ''}
+        onclick="togglePage(this.checked)" title="Select everyone on this page" /></th>
+      ${head}<th></th>
     </tr></thead>
-    <tbody>${rows.map(l => `
-      <tr>
+    <tbody>${rows.map((l, i) => `
+      <tr${SELECTED.has(l.id) ? ' class="is-selected"' : ''}>
+        <td><input type="checkbox" ${SELECTED.has(l.id) ? 'checked' : ''}
+          onclick="rowTick(event, ${i}, '${l.id}')" /></td>
         <td><b>${esc(l.full_name)}</b>${l.status === 'inactive'
           ? `<div class="small" style="color:var(--amber)">Inactive — ${esc(l.status_reason || 'deactivated')}</div>` : ''}</td>
         <td class="small mono">${esc(l.member_number || '—')}</td>
@@ -72,10 +105,10 @@ async function loadLoanees() {
           <button class="btn btn-sm" onclick="editLoanee('${l.id}')" title="Edit"><i class="fa-solid fa-pen"></i></button>
           <button class="btn btn-sm" onclick="loaneeGroups('${l.id}')" title="Groups"><i class="fa-solid fa-user-lock"></i></button>
           <button class="btn btn-sm" onclick="loaneeHistory('${l.id}')" title="History"><i class="fa-solid fa-clock-rotate-left"></i></button>
-          <button class="btn btn-sm btn-danger" onclick="deactivateLoanee('${l.id}','${esc(l.full_name)}')" title="Deactivate"><i class="fa-solid fa-user-slash"></i></button>
         </td>
       </tr>`).join('')}</tbody></table></div>`;
 
+  renderSelectionBar();
   renderPager();
 }
 
@@ -124,6 +157,113 @@ function setPageSize(n) {
   LN.limit = parseInt(n, 10) || 25;
   LN.offset = Math.floor(firstVisible / LN.limit) * LN.limit;
   loadLoanees();
+}
+
+// ── Sorting ────────────────────────────────────────────────────────────
+// Clicking the sorted column reverses it; clicking a different one starts
+// ascending, because that is what people expect from a spreadsheet.
+function sortBy(key) {
+  if (LN.sort === key) LN.dir = LN.dir === 'asc' ? 'desc' : 'asc';
+  else { LN.sort = key; LN.dir = 'asc'; }
+  LN.offset = 0;
+  LAST_CLICKED = null;    // ranges are meaningless once the order changes
+  loadLoanees();
+}
+
+// ── Selection ──────────────────────────────────────────────────────────
+function rowTick(ev, index, id) {
+  // Shift extends from the last row you ticked, exactly like a file list.
+  if (ev.shiftKey && LAST_CLICKED !== null) {
+    const [lo, hi] = [Math.min(LAST_CLICKED, index), Math.max(LAST_CLICKED, index)];
+    // The anchor's state decides the whole range, so shift-clicking can
+    // deselect a block as well as select one.
+    const turnOn = SELECTED.has(PAGE_IDS[LAST_CLICKED]);
+    for (let i = lo; i <= hi; i++) {
+      if (turnOn) SELECTED.add(PAGE_IDS[i]); else SELECTED.delete(PAGE_IDS[i]);
+    }
+  } else {
+    if (SELECTED.has(id)) SELECTED.delete(id); else SELECTED.add(id);
+    LAST_CLICKED = index;
+  }
+  loadLoanees();
+}
+
+function togglePage(on) {
+  for (const id of PAGE_IDS) { if (on) SELECTED.add(id); else SELECTED.delete(id); }
+  LAST_CLICKED = null;
+  loadLoanees();
+}
+
+function clearSelection() { SELECTED.clear(); LAST_CLICKED = null; loadLoanees(); }
+
+function renderSelectionBar() {
+  const el = document.getElementById('ln-selection');
+  if (!el) return;
+  const n = SELECTED.size;
+  if (!n) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div class="card card-sm" style="margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <b>${n} selected</b>
+      <span class="small muted">Shift-click to select a range.</span>
+      <div style="flex:1"></div>
+      <button class="btn btn-sm" onclick="clearSelection()">Clear selection</button>
+      <button class="btn btn-sm btn-danger" onclick="deleteSelected()">
+        <i class="fa-solid fa-trash"></i> Delete ${n}</button>
+    </div>`;
+}
+
+async function deleteSelected() {
+  const ids = [...SELECTED];
+  if (!ids.length) return;
+  const ok = await confirmModal(
+    `Remove ${ids.length} ${ids.length === 1 ? 'person' : 'people'} from the roster?`,
+    { title: 'Delete loanees', confirmLabel: `Delete ${ids.length}`, danger: true });
+  if (!ok) return;
+
+  const { data, error } = await api('/loanees/bulk-delete', 'POST', { ids });
+  if (error) return toastMsg('Could not delete', error, 'error');
+
+  // Anyone with loan history is deactivated instead of deleted. Say so —
+  // "delete" quietly meaning something else is how trust in a tool dies.
+  const bits = [];
+  if (data.deleted) bits.push(`${data.deleted} deleted`);
+  if (data.deactivated) bits.push(`${data.deactivated} deactivated (they have loan history, so it was kept)`);
+  toastMsg('Done', bits.join(' · '), 'ok');
+  SELECTED.clear(); LAST_CLICKED = null;
+  loadLoanees();
+}
+
+// ── Clear roster ───────────────────────────────────────────────────────
+function clearRoster() {
+  formModal('Clear the entire roster', `
+    <div class="card card-sm" style="border-left:3px solid var(--red);margin-bottom:14px">
+      <div class="small"><b>This removes every loanee.</b> Anyone who has ever been on a
+      loan is deactivated rather than deleted, so no check-out history is lost — everyone
+      else is permanently removed.</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">PIN *</label>
+      <input class="form-input" name="pin" type="password" inputmode="numeric"
+             autocomplete="off" required placeholder="••••" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Type DELETE to confirm *</label>
+      <input class="form-input" name="confirm" autocomplete="off" placeholder="DELETE" required />
+    </div>`,
+    { icon: 'fa-triangle-exclamation', submitLabel: 'Clear the roster' })
+    .then(async form => {
+      if (!form) return;
+      const pin = form.querySelector('[name="pin"]').value.trim();
+      const confirm = form.querySelector('[name="confirm"]').value.trim();
+      if (confirm !== 'DELETE') return toastMsg('Not confirmed', 'Type DELETE exactly.', 'error');
+
+      const { data, error } = await api('/loanees/clear-roster', 'POST', { pin, confirm });
+      if (error) return toastMsg('Roster not cleared', error, 'error');
+      toastMsg('Roster cleared',
+        `${data.deleted} deleted${data.deactivated ? ` · ${data.deactivated} kept as inactive for their loan history` : ''}`, 'ok');
+      SELECTED.clear(); LAST_CLICKED = null; LN.offset = 0;
+      loadLoanees();
+    });
 }
 
 function setStatusFilter(v) {
