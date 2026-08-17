@@ -32,6 +32,7 @@ function getProfile() {
 }
 function signOut() {
   [localStorage, sessionStorage].forEach(s => { s.removeItem(TOKEN_KEY); s.removeItem(PROFILE_KEY); });
+  localStorage.removeItem('assets.brand');
   window.location.href = '/index.html';
 }
 
@@ -123,19 +124,73 @@ function toastMsg(title, body, kind) {
   setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 320); }, kind === 'error' ? 8000 : 5000);
 }
 
-// ── Branding (swap point 1 of 4 lives in js/config.js) ─────────
-// Nothing hardcodes the app name in markup. Any element carrying
-// data-app-name / data-app-short / data-app-org is filled in here, so
-// renaming the app is a one-line change in config.js.
-function brandPage() {
-  const map = { 'data-app-name': APP_NAME, 'data-app-short': APP_SHORT, 'data-app-org': APP_ORG };
+// ── Branding ───────────────────────────────────────────────────
+// Two sources, deliberately, in this order:
+//
+//   1. The constants in js/config.js — always available, including on the
+//      login page where nobody is authenticated yet. These are the
+//      fallback and the anti-flash value.
+//   2. app_settings.app_display_name / org_display_name from the database
+//      — what Admin → Settings actually edits. Fetched once after sign-in
+//      and cached in localStorage, so every later page load paints the
+//      right name immediately rather than flashing the old one.
+//
+// Before this existed, renaming the app in Admin → Settings changed the
+// setting and nothing on screen, because the markup was filled purely
+// from the compile-time constants.
+const BRAND_CACHE_KEY = 'assets.brand';
+
+function _cachedBrand() {
+  try { return JSON.parse(localStorage.getItem(BRAND_CACHE_KEY) || 'null'); }
+  catch { return null; }
+}
+
+function applyBrand(brand) {
+  const b = brand || {};
+  const name = b.app_display_name || APP_NAME;
+  // No separate short name in the database: a short name that drifts from
+  // the real one is worse than a slightly long header.
+  const short = b.app_display_name || APP_SHORT;
+  const org = b.org_display_name || APP_ORG;
+
+  const map = { 'data-app-name': name, 'data-app-short': short, 'data-app-org': org };
   for (const [attr, val] of Object.entries(map)) {
     document.querySelectorAll(`[${attr}]`).forEach(el => { el.textContent = val; });
   }
-  if (document.title.includes('{{app}}')) document.title = document.title.replace('{{app}}', APP_NAME);
+  if (document.title.includes('{{app}}')) document.title = document.title.replace('{{app}}', name);
+  // Keep the manifest's name in step so an installed PWA does not keep the
+  // old label on the home screen.
+  const mt = document.querySelector('meta[name="application-name"]');
+  if (mt) mt.setAttribute('content', name);
 }
+
+function brandPage() { applyBrand(_cachedBrand()); }
+
+// Refreshes the cache from the server. Cheap, and only meaningful once
+// signed in — the login page has no token and simply keeps the constants.
+async function refreshBrand() {
+  try {
+    const { data } = await api('/settings');
+    if (!data) return;
+    const brand = {
+      app_display_name: data.app_display_name || null,
+      org_display_name: data.org_display_name || null,
+    };
+    localStorage.setItem(BRAND_CACHE_KEY, JSON.stringify(brand));
+    applyBrand(brand);
+  } catch { /* offline or signed out: the cached/constant name stands */ }
+}
+
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', brandPage);
 else brandPage();
+
+// Pull the live name shortly after paint, so an admin's rename reaches
+// every other page on its next load without anyone clearing a cache.
+if (typeof window !== 'undefined') {
+  // getToken() is the single accessor for the JWT — never re-derive the
+  // storage key here, it has been wrong once already.
+  setTimeout(() => { if (typeof getToken === 'function' && getToken()) refreshBrand(); }, 50);
+}
 
 // Register the service worker on every page.
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
