@@ -1,4 +1,4 @@
-// ─────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────
 // HLSR Asset Tracker — loanees (the people who borrow; they never log in)
 //   GET    /api/loanees              any signed-in role
 //   GET    /api/loanees/lookup?q=    any  (powers the picker)
@@ -8,7 +8,7 @@
 //   PATCH  /api/loanees/{id}         admin
 //   PATCH  /api/loanees/{id}/groups  admin
 //   DELETE /api/loanees/{id}         admin (soft delete)
-// ─────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────
 const { app } = require('@azure/functions');
 const { query, withTransaction } = require('../db');
 const {
@@ -156,7 +156,8 @@ app.http('loaneesCreate', {
     const { user, error, status } = await requireRole(request, 'admin');
     if (error) return err(error, status);
     const { body, bad } = await readJson(request); if (bad) return bad;
-    const { first_name, last_name, email, phone_mobile, position, sub_committee, notes, group_ids } = body || {};
+    const { first_name, last_name, email, phone_mobile, position, sub_committee,
+            notes, group_ids, member_number, title } = body || {};
     if (!first_name || !last_name) return err('First and last name are required');
     if (email && !EMAIL_RE.test(String(email))) return err('That email address does not look right');
 
@@ -165,11 +166,15 @@ app.http('loaneesCreate', {
         const full = `${String(first_name).trim()} ${String(last_name).trim()}`;
         const r = await client.query(
           `INSERT INTO public.loanees
-             (first_name, last_name, full_name, email, phone_mobile, position, sub_committee, notes, created_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+             (first_name, last_name, full_name, email, phone_mobile, position, sub_committee,
+              notes, member_number, title, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
           [String(first_name).trim(), String(last_name).trim(), full,
            email ? String(email).toLowerCase().trim() : null, normPhone(phone_mobile),
-           position || null, sub_committee || null, notes || null, user.sub]);
+           position || null, sub_committee || null, notes || null,
+           // Empty string would collide on the partial unique index the
+           // moment a second loanee was saved without one.
+           (member_number || '').trim() || null, title || null, user.sub]);
         const loanee = r.rows[0];
         for (const gid of (group_ids || [])) {
           await client.query(
@@ -217,8 +222,13 @@ app.http('loaneesUpdate', {
       push('email', body.email ? String(body.email).toLowerCase().trim() : null);
     }
     if (body.phone_mobile !== undefined) push('phone_mobile', normPhone(body.phone_mobile));
-    for (const f of ['position', 'sub_committee', 'notes']) {
+    for (const f of ['position', 'sub_committee', 'notes', 'title']) {
       if (body[f] !== undefined) push(f, body[f] || null);
+    }
+    // Normalised to NULL when blanked: '' would collide on the partial
+    // unique index as soon as a second loanee was saved without one.
+    if (body.member_number !== undefined) {
+      push('member_number', String(body.member_number || '').trim() || null);
     }
     if (body.status !== undefined) {
       if (!['active', 'inactive'].includes(body.status)) return err('Status must be active or inactive');
