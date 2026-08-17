@@ -122,7 +122,14 @@ crypt('NEWPIN', gen_salt('bf'));`):
 psql "$DATABASE_URL" -f api/migrations/004_roster_admin.sql
 ```
 
-All four are idempotent. `scripts/setup-azure.sh` applies every migration in `api/migrations/` in
+Then the repair-shop defaults, which create ADC and EAC and wire fuel carts → Buildings and
+Grounds, golf carts → ADC, forklifts → EAC:
+
+```bash
+psql "$DATABASE_URL" -f api/migrations/005_shop_defaults.sql
+```
+
+All five are idempotent. `scripts/setup-azure.sh` applies every migration in `api/migrations/` in
 order on a fresh install; you only need these by hand when upgrading an environment that already
 exists.
 
