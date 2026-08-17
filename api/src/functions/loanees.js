@@ -1,1 +1,314 @@
-// ─────────────────────────────────────────────────────────────\n// HLSR Asset Tracker — loanees (the people who borrow; they never log in)\n//   GET    /api/loanees              any signed-in role\n//   GET    /api/loanees/lookup?q=    any  (powers the picker)\n//   GET    /api/loanees/{id}         any\n//   GET    /api/loanees/{id}/history any\n//   POST   /api/loanees              admin\n//   PATCH  /api/loanees/{id}         admin\n//   PATCH  /api/loanees/{id}/groups  admin\n//   DELETE /api/loanees/{id}         admin (soft delete)\n// ─────────────────────────────────────────────────────────────\nconst { app } = require('@azure/functions');\nconst { query, withTransaction } = require('../db');\nconst {\n  json, err, requireAuth, requireRole, logAudit, readJson, qs, uuidOrNull,\n} = require('../middleware');\n\nconst EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;\n\n// Phone numbers arrive from a dozen sources in a dozen shapes. Store\n// digits only so the soft dedupe key in the importer has something\n// stable to match on; the UI formats for display.\nfunction normPhone(v) {\n  if (!v) return null;\n  const d = String(v).replace(/\D/g, '');\n  if (!d) return null;\n  return d.length === 11 && d.startsWith('1') ? d.slice(1) : d;\n}\n\napp.http('loaneesList', {\n  methods: ['GET'], authLevel: 'anonymous', route: 'loanees',\n  handler: async (request) => {\n    const { error, status } = await requireAuth(request);\n    if (error) return err(error, status);\n    const p = qs(request);\n    const q = (p.get('q') || '').trim();\n    const groupId = uuidOrNull(p.get('group_id'));\n    const sub = p.get('sub_committee');\n    const st = ['active', 'inactive'].includes(p.get('status')) ? p.get('status') : 'active';\n    const limit = Math.min(parseInt(p.get('limit') || '100', 10) || 100, 500);\n    const offset = Math.max(parseInt(p.get('offset') || '0', 10) || 0, 0);\n\n    const where = `\n      WHERE ln.status = $1\n        AND ($2::text IS NULL OR ln.full_name ILIKE '%'||$2||'%' OR ln.email ILIKE '%'||$2||'%'\n             OR ln.sub_committee ILIKE '%'||$2||'%' OR ln.phone_mobile LIKE '%'||$2||'%')\n        AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM public.group_members gm\n                                         WHERE gm.loanee_id = ln.id AND gm.group_id = $3))\n        AND ($4::text IS NULL OR ln.sub_committee = $4)`;\n    const params = [st, q || null, groupId, sub || null];\n\n    const rows = await query(\n      `SELECT ln.*,\n              (SELECT count(*) FROM public.loan_items li\n                 JOIN public.loans l ON l.id = li.loan_id\n                WHERE l.loanee_id = ln.id AND li.checked_in_at IS NULL)::int AS items_out,\n              COALESCE((SELECT array_agg(g.name ORDER BY g.name)\n                        FROM public.group_members gm JOIN public.groups g ON g.id = gm.group_id\n                        WHERE gm.loanee_id = ln.id), '{}') AS group_names\n       FROM public.loanees ln ${where}\n       ORDER BY ln.last_name, ln.first_name\n       LIMIT $5 OFFSET $6`, [...params, limit, offset]);\n    const total = await query(`SELECT count(*)::int AS n FROM public.loanees ln ${where}`, params);\n    return json({ rows: rows.rows, total: total.rows[0].n });\n  },\n});\n\n// Type-ahead for the check-out counter. Returns `exact` separately from\n// `matches` so the picker can auto-select on an exact hit + Enter —\n// which is exactly what a keyboard-wedge barcode scanner produces.\napp.http('loaneesLookup', {\n  methods: ['GET'], authLevel: 'anonymous', route: 'loanees/lookup',\n  handler: async (request) => {\n    const { error, status } = await requireAuth(request);\n    if (error) return err(error, status);\n    const q = (qs(request).get('q') || '').trim();\n    if (q.length < 2) return json({ exact: null, matches: [] });\n\n    const r = await query(\n      `SELECT ln.id, ln.full_name, ln.first_name, ln.last_name, ln.email, ln.phone_mobile,\n              ln.position, ln.sub_committee,\n              (lower(coalesce(ln.email,'')) = lower($1)) AS is_exact,\n              (SELECT count(*) FROM public.loan_items li\n                 JOIN public.loans l ON l.id = li.loan_id\n                WHERE l.loanee_id = ln.id AND li.checked_in_at IS NULL)::int AS items_out,\n              COALESCE((SELECT array_agg(g.name ORDER BY g.name)\n                        FROM public.group_members gm JOIN public.groups g ON g.id = gm.group_id\n                        WHERE gm.loanee_id = ln.id), '{}') AS group_names\n       FROM public.loanees ln\n       WHERE ln.status = 'active'\n         AND ( lower(coalesce(ln.email,'')) = lower($1)\n            OR ln.full_name ILIKE '%'||$1||'%'\n            OR ln.last_name ILIKE $1||'%'\n            OR ( regexp_replace($1, '\D', '', 'g') <> ''\n                 AND regexp_replace(coalesce(ln.phone_mobile,''), '\D', '', 'g')\n                     LIKE '%'||regexp_replace($1, '\D', '', 'g')||'%' ) )\n       ORDER BY is_exact DESC, similarity(ln.full_name, $1) DESC, ln.last_name\n       LIMIT 10`, [q]);\n\n    const exact = r.rows.find(x => x.is_exact) || null;\n    return json({ exact, matches: r.rows });\n  },\n});\n\napp.http('loaneesGet', {\n  methods: ['GET'], authLevel: 'anonymous', route: 'loanees/{id}',\n  handler: async (request) => {\n    const { error, status } = await requireAuth(request);\n    if (error) return err(error, status);\n    const id = request.params.id;\n    const r = await query(`SELECT * FROM public.loanees WHERE id = $1`, [id]);\n    if (!r.rows.length) return err('Loanee not found', 404);\n    const groups = await query(\n      `SELECT g.id, g.name FROM public.group_members gm\n       JOIN public.groups g ON g.id = gm.group_id\n       WHERE gm.loanee_id = $1 ORDER BY g.name`, [id]);\n    const open = await query(\n      `SELECT * FROM public.v_open_loan_items WHERE loanee_id = $1 ORDER BY checked_out_at DESC`, [id]);\n    return json({ ...r.rows[0], groups: groups.rows, open_items: open.rows });\n  },\n});\n\napp.http('loaneesHistory', {\n  methods: ['GET'], authLevel: 'anonymous', route: 'loanees/{id}/history',\n  handler: async (request) => {\n    const { error, status } = await requireAuth(request);\n    if (error) return err(error, status);\n    const p = qs(request);\n    const r = await query(\n      `SELECT li.id, li.checked_out_at, li.due_at, li.checked_in_at,\n              li.out_condition, li.in_condition, li.in_notes,\n              a.asset_tag, a.title AS asset_title, c.name AS category,\n              po.full_name AS checked_out_by, pi.full_name AS checked_in_by,\n              ROUND(EXTRACT(EPOCH FROM (COALESCE(li.checked_in_at, now()) - li.checked_out_at))/3600.0, 1) AS hours_held,\n              (li.checked_in_at IS NULL) AS still_out,\n              (li.checked_in_at IS NOT NULL AND li.due_at IS NOT NULL AND li.checked_in_at > li.due_at) AS returned_late\n       FROM public.loan_items li\n       JOIN public.loans   l ON l.id = li.loan_id\n       JOIN public.assets  a ON a.id = li.asset_id\n       LEFT JOIN public.asset_categories c ON c.id = a.category_id\n       LEFT JOIN public.profiles po ON po.id = l.checked_out_by\n       LEFT JOIN public.profiles pi ON pi.id = li.checked_in_by\n       WHERE l.loanee_id = $1\n         AND ($2::timestamptz IS NULL OR li.checked_out_at >= $2)\n         AND ($3::timestamptz IS NULL OR li.checked_out_at <  $3)\n       ORDER BY li.checked_out_at DESC\n       LIMIT 500`,\n      [request.params.id, p.get('from') || null, p.get('to') || null]);\n    return json(r.rows);\n  },\n});\n\napp.http('loaneesCreate', {\n  methods: ['POST'], authLevel: 'anonymous', route: 'loanees',\n  handler: async (request) => {\n    const { user, error, status } = await requireRole(request, 'admin');\n    if (error) return err(error, status);\n    const { body, bad } = await readJson(request); if (bad) return bad;\n    const { first_name, last_name, email, phone_mobile, position, sub_committee,\n            notes, group_ids, member_number, title } = body || {};\n    if (!first_name || !last_name) return err('First and last name are required');\n    if (email && !EMAIL_RE.test(String(email))) return err('That email address does not look right');\n\n    try {\n      const created = await withTransaction(async (client) => {\n        const full = `${String(first_name).trim()} ${String(last_name).trim()}`;\n        const r = await client.query(\n          `INSERT INTO public.loanees\n             (first_name, last_name, full_name, email, phone_mobile, title,\n              sub_committee, notes, member_number, title, created_by)\n           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,\n          [String(first_name).trim(), String(last_name).trim(), full,\n           email ? String(email).toLowerCase().trim() : null, normPhone(phone_mobile),\n           position || null, sub_committee || null, notes || null,\n           // Empty string would collide on the partial unique index the\n           // moment a second loanee was saved without one.\n           (member_number || '').trim() || null, title || null, user.sub]);\n        const loanee = r.rows[0];\n        for (const gid of (group_ids || [])) {\n          await client.query(\n            `INSERT INTO public.group_members (group_id, loanee_id, added_by)\n             VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, [gid, loanee.id, user.sub]);\n        }\n        return loanee;\n      });\n      await logAudit(request, {\n        profile_id: user.sub, email: user.email,\n        action: 'loanee_created', detail: created.full_name,\n      });\n      return json(created, 201);\n    } catch (e) {\n      if (e.code === '23505') return err('A loanee with that email address already exists', 409);\n      throw e;\n    }\n  },\n});\n\napp.http('loaneesUpdate', {\n  methods: ['PATCH'], authLevel: 'anonymous', route: 'loanees/{id}',\n  handler: async (request) => {\n    const { user, error, status } = await requireRole(request, 'admin');\n    if (error) return err(error, status);\n    const id = request.params.id;\n    const { body, bad } = await readJson(request); if (bad) return bad;\n\n    const cur = await query(`SELECT * FROM public.loanees WHERE id = $1`, [id]);\n    if (!cur.rows.length) return err('Loanee not found', 404);\n    const before = cur.rows[0];\n\n    const sets = []; const vals = []; let i = 1;\n    const push = (col, val) => { sets.push(`${col} = $${i++}`); vals.push(val); };\n\n    if (body.first_name !== undefined) push('first_name', String(body.first_name).trim());\n    if (body.last_name !== undefined) push('last_name', String(body.last_name).trim());\n    if (body.first_name !== undefined || body.last_name !== undefined) {\n      const fn = body.first_name !== undefined ? String(body.first_name).trim() : before.first_name;\n      const ln = body.last_name !== undefined ? String(body.last_name).trim() : before.last_name;\n      push('full_name', `${fn} ${ln}`.trim());\n    }\n    if (body.email !== undefined) {\n      if (body.email && !EMAIL_RE.test(String(body.email))) return err('That email address does not look right');\n      push('email', body.email ? String(body.email).toLowerCase().trim() : null);\n    }\n    if (body.phone_mobile !== undefined) push('phone_mobile', normPhone(body.phone_mobile));\n    for (const f of ['position', 'sub_committee', 'notes', 'title']) {\n      if (body[f] !== undefined) push(f, body[f] || null);\n    }\n    // Normalised to NULL when blanked: '' would collide on the partial\n    // unique index as soon as a second loanee was saved without one.\n    if (body.member_number !== undefined) {\n      push('member_number', String(body.member_number || '').trim() || null);\n    }\n    if (body.status !== undefined) {\n      if (!['active', 'inactive'].includes(body.status)) return err('Status must be active or inactive');\n      push('status', body.status);\n    }\n    if (!sets.length) return err('Nothing to update');\n    sets.push(`updated_at = now()`);\n    vals.push(id);\n\n    try {\n      const r = await query(`UPDATE public.loanees SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, vals);\n      await logAudit(request, {\n        profile_id: user.sub, email: user.email,\n        action: 'loanee_updated', detail: `${before.full_name}: ${Object.keys(body).join(', ')}`,\n      });\n      return json(r.rows[0]);\n    } catch (e) {\n      if (e.code === '23505') return err('Another loanee already has that email address', 409);\n      throw e;\n    }\n  },\n});\n\napp.http('loaneesSetGroups', {\n  methods: ['PATCH'], authLevel: 'anonymous', route: 'loanees/{id}/groups',\n  handler: async (request) => {\n    const { user, error, status } = await requireRole(request, 'admin');\n    if (error) return err(error, status);\n    const id = request.params.id;\n    const { body, bad } = await readJson(request); if (bad) return bad;\n    const ids = Array.isArray(body?.group_ids) ? body.group_ids : null;\n    if (!ids) return err('group_ids must be an array (send [] to clear)');\n\n    // Full replace, not a merge — the UI presents this as a checklist,\n    // so \"what I see is what is saved\" has to hold.\n    const groups = await withTransaction(async (client) => {\n      await client.query(`DELETE FROM public.group_members WHERE loanee_id = $1`, [id]);\n      for (const gid of ids) {\n        await client.query(\n          `INSERT INTO public.group_members (group_id, loanee_id, added_by)\n           VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, [gid, id, user.sub]);\n      }\n      const r = await client.query(\n        `SELECT g.id, g.name FROM public.group_members gm\n         JOIN public.groups g ON g.id = gm.group_id WHERE gm.loanee_id = $1 ORDER BY g.name`, [id]);\n      return r.rows;\n    });\n    await logAudit(request, {\n      profile_id: user.sub, email: user.email,\n      action: 'loanee_groups_changed', detail: `${id} → ${groups.map(g => g.name).join(', ') || '(none)'}`,\n    });\n    return json({ groups });\n  },\n});\n\n// Soft delete. Refused while the person is still holding something —\n// deactivating someone mid-loan would drop their name off the board and\n// quietly orphan the equipment.\napp.http('loaneesDelete', {\n  methods: ['DELETE'], authLevel: 'anonymous', route: 'loanees/{id}',\n  handler: async (request) => {\n    const { user, error, status } = await requireRole(request, 'admin');\n    if (error) return err(error, status);\n    const id = request.params.id;\n    const open = await query(\n      `SELECT count(*)::int AS n FROM public.loan_items li\n       JOIN public.loans l ON l.id = li.loan_id\n       WHERE l.loanee_id = $1 AND li.checked_in_at IS NULL`, [id]);\n    if (open.rows[0].n > 0) {\n      return err(`They still have ${open.rows[0].n} item(s) checked out — check those in first`, 409);\n    }\n    const r = await query(\n      `UPDATE public.loanees SET status = 'inactive', updated_at = now() WHERE id = $1 RETURNING full_name`, [id]);\n    if (!r.rows.length) return err('Loanee not found', 404);\n    await logAudit(request, {\n      profile_id: user.sub, email: user.email,\n      action: 'loanee_deactivated', detail: r.rows[0].full_name,\n    });\n    return json({ ok: true });\n  },\n});\n\nmodule.exports = {};\n
+// ─────────────────────────────────────────────────────────────
+// HLSR Asset Tracker — loanees (the people who borrow; they never log in)
+//   GET    /api/loanees              any signed-in role
+//   GET    /api/loanees/lookup?q=    any  (powers the picker)
+//   GET    /api/loanees/{id}         any
+//   GET    /api/loanees/{id}/history any
+//   POST   /api/loanees              admin
+//   PATCH  /api/loanees/{id}         admin
+//   PATCH  /api/loanees/{id}/groups  admin
+//   DELETE /api/loanees/{id}         admin (soft delete)
+// ─────────────────────────────────────────────────────────────
+const { app } = require('@azure/functions');
+const { query, withTransaction } = require('../db');
+const {
+  json, err, requireAuth, requireRole, logAudit, readJson, qs, uuidOrNull,
+} = require('../middleware');
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+// Phone numbers arrive from a dozen sources in a dozen shapes. Store
+// digits only so the soft dedupe key in the importer has something
+// stable to match on; the UI formats for display.
+function normPhone(v) {
+  if (!v) return null;
+  const d = String(v).replace(/\D/g, '');
+  if (!d) return null;
+  return d.length === 11 && d.startsWith('1') ? d.slice(1) : d;
+}
+
+app.http('loaneesList', {
+  methods: ['GET'], authLevel: 'anonymous', route: 'loanees',
+  handler: async (request) => {
+    const { error, status } = await requireAuth(request);
+    if (error) return err(error, status);
+    const p = qs(request);
+    const q = (p.get('q') || '').trim();
+    const groupId = uuidOrNull(p.get('group_id'));
+    const sub = p.get('sub_committee');
+    const st = ['active', 'inactive'].includes(p.get('status')) ? p.get('status') : 'active';
+    const limit = Math.min(parseInt(p.get('limit') || '100', 10) || 100, 500);
+    const offset = Math.max(parseInt(p.get('offset') || '0', 10) || 0, 0);
+
+    const where = `
+      WHERE ln.status = $1
+        AND ($2::text IS NULL OR ln.full_name ILIKE '%'||$2||'%' OR ln.email ILIKE '%'||$2||'%'
+             OR ln.sub_committee ILIKE '%'||$2||'%' OR ln.phone_mobile LIKE '%'||$2||'%')
+        AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM public.group_members gm
+                                         WHERE gm.loanee_id = ln.id AND gm.group_id = $3))
+        AND ($4::text IS NULL OR ln.sub_committee = $4)`;
+    const params = [st, q || null, groupId, sub || null];
+
+    const rows = await query(
+      `SELECT ln.*,
+              (SELECT count(*) FROM public.loan_items li
+                 JOIN public.loans l ON l.id = li.loan_id
+                WHERE l.loanee_id = ln.id AND li.checked_in_at IS NULL)::int AS items_out,
+              COALESCE((SELECT array_agg(g.name ORDER BY g.name)
+                        FROM public.group_members gm JOIN public.groups g ON g.id = gm.group_id
+                        WHERE gm.loanee_id = ln.id), '{}') AS group_names
+       FROM public.loanees ln ${where}
+       ORDER BY ln.last_name, ln.first_name
+       LIMIT $5 OFFSET $6`, [...params, limit, offset]);
+    const total = await query(`SELECT count(*)::int AS n FROM public.loanees ln ${where}`, params);
+    return json({ rows: rows.rows, total: total.rows[0].n });
+  },
+});
+
+// Type-ahead for the check-out counter. Returns `exact` separately from
+// `matches` so the picker can auto-select on an exact hit + Enter —
+// which is exactly what a keyboard-wedge barcode scanner produces.
+app.http('loaneesLookup', {
+  methods: ['GET'], authLevel: 'anonymous', route: 'loanees/lookup',
+  handler: async (request) => {
+    const { error, status } = await requireAuth(request);
+    if (error) return err(error, status);
+    const q = (qs(request).get('q') || '').trim();
+    if (q.length < 2) return json({ exact: null, matches: [] });
+
+    const r = await query(
+      `SELECT ln.id, ln.full_name, ln.first_name, ln.last_name, ln.email, ln.phone_mobile,
+              ln.position, ln.sub_committee,
+              (lower(coalesce(ln.email,'')) = lower($1)) AS is_exact,
+              (SELECT count(*) FROM public.loan_items li
+                 JOIN public.loans l ON l.id = li.loan_id
+                WHERE l.loanee_id = ln.id AND li.checked_in_at IS NULL)::int AS items_out,
+              COALESCE((SELECT array_agg(g.name ORDER BY g.name)
+                        FROM public.group_members gm JOIN public.groups g ON g.id = gm.group_id
+                        WHERE gm.loanee_id = ln.id), '{}') AS group_names
+       FROM public.loanees ln
+       WHERE ln.status = 'active'
+         AND ( lower(coalesce(ln.email,'')) = lower($1)
+            OR ln.full_name ILIKE '%'||$1||'%'
+            OR ln.last_name ILIKE $1||'%'
+            OR ( regexp_replace($1, '\\D', '', 'g') <> ''
+                 AND regexp_replace(coalesce(ln.phone_mobile,''), '\\D', '', 'g')
+                     LIKE '%'||regexp_replace($1, '\\D', '', 'g')||'%' ) )
+       ORDER BY is_exact DESC, similarity(ln.full_name, $1) DESC, ln.last_name
+       LIMIT 10`, [q]);
+
+    const exact = r.rows.find(x => x.is_exact) || null;
+    return json({ exact, matches: r.rows });
+  },
+});
+
+app.http('loaneesGet', {
+  methods: ['GET'], authLevel: 'anonymous', route: 'loanees/{id}',
+  handler: async (request) => {
+    const { error, status } = await requireAuth(request);
+    if (error) return err(error, status);
+    const id = request.params.id;
+    const r = await query(`SELECT * FROM public.loanees WHERE id = $1`, [id]);
+    if (!r.rows.length) return err('Loanee not found', 404);
+    const groups = await query(
+      `SELECT g.id, g.name FROM public.group_members gm
+       JOIN public.groups g ON g.id = gm.group_id
+       WHERE gm.loanee_id = $1 ORDER BY g.name`, [id]);
+    const open = await query(
+      `SELECT * FROM public.v_open_loan_items WHERE loanee_id = $1 ORDER BY checked_out_at DESC`, [id]);
+    return json({ ...r.rows[0], groups: groups.rows, open_items: open.rows });
+  },
+});
+
+app.http('loaneesHistory', {
+  methods: ['GET'], authLevel: 'anonymous', route: 'loanees/{id}/history',
+  handler: async (request) => {
+    const { error, status } = await requireAuth(request);
+    if (error) return err(error, status);
+    const p = qs(request);
+    const r = await query(
+      `SELECT li.id, li.checked_out_at, li.due_at, li.checked_in_at,
+              li.out_condition, li.in_condition, li.in_notes,
+              a.asset_tag, a.title AS asset_title, c.name AS category,
+              po.full_name AS checked_out_by, pi.full_name AS checked_in_by,
+              ROUND(EXTRACT(EPOCH FROM (COALESCE(li.checked_in_at, now()) - li.checked_out_at))/3600.0, 1) AS hours_held,
+              (li.checked_in_at IS NULL) AS still_out,
+              (li.checked_in_at IS NOT NULL AND li.due_at IS NOT NULL AND li.checked_in_at > li.due_at) AS returned_late
+       FROM public.loan_items li
+       JOIN public.loans   l ON l.id = li.loan_id
+       JOIN public.assets  a ON a.id = li.asset_id
+       LEFT JOIN public.asset_categories c ON c.id = a.category_id
+       LEFT JOIN public.profiles po ON po.id = l.checked_out_by
+       LEFT JOIN public.profiles pi ON pi.id = li.checked_in_by
+       WHERE l.loanee_id = $1
+         AND ($2::timestamptz IS NULL OR li.checked_out_at >= $2)
+         AND ($3::timestamptz IS NULL OR li.checked_out_at <  $3)
+       ORDER BY li.checked_out_at DESC
+       LIMIT 500`,
+      [request.params.id, p.get('from') || null, p.get('to') || null]);
+    return json(r.rows);
+  },
+});
+
+app.http('loaneesCreate', {
+  methods: ['POST'], authLevel: 'anonymous', route: 'loanees',
+  handler: async (request) => {
+    const { user, error, status } = await requireRole(request, 'admin');
+    if (error) return err(error, status);
+    const { body, bad } = await readJson(request); if (bad) return bad;
+    const { first_name, last_name, email, phone_mobile, position, sub_committee,
+            notes, group_ids, member_number, title } = body || {};
+    if (!first_name || !last_name) return err('First and last name are required');
+    if (email && !EMAIL_RE.test(String(email))) return err('That email address does not look right');
+
+    try {
+      const created = await withTransaction(async (client) => {
+        const full = `${String(first_name).trim()} ${String(last_name).trim()}`;
+        const r = await client.query(
+          `INSERT INTO public.loanees
+             (first_name, last_name, full_name, email, phone_mobile, position, sub_committee,
+              notes, member_number, title, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+          [String(first_name).trim(), String(last_name).trim(), full,
+           email ? String(email).toLowerCase().trim() : null, normPhone(phone_mobile),
+           position || null, sub_committee || null, notes || null,
+           // Empty string would collide on the partial unique index the
+           // moment a second loanee was saved without one.
+           (member_number || '').trim() || null, title || null, user.sub]);
+        const loanee = r.rows[0];
+        for (const gid of (group_ids || [])) {
+          await client.query(
+            `INSERT INTO public.group_members (group_id, loanee_id, added_by)
+             VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, [gid, loanee.id, user.sub]);
+        }
+        return loanee;
+      });
+      await logAudit(request, {
+        profile_id: user.sub, email: user.email,
+        action: 'loanee_created', detail: created.full_name,
+      });
+      return json(created, 201);
+    } catch (e) {
+      if (e.code === '23505') return err('A loanee with that email address already exists', 409);
+      throw e;
+    }
+  },
+});
+
+app.http('loaneesUpdate', {
+  methods: ['PATCH'], authLevel: 'anonymous', route: 'loanees/{id}',
+  handler: async (request) => {
+    const { user, error, status } = await requireRole(request, 'admin');
+    if (error) return err(error, status);
+    const id = request.params.id;
+    const { body, bad } = await readJson(request); if (bad) return bad;
+
+    const cur = await query(`SELECT * FROM public.loanees WHERE id = $1`, [id]);
+    if (!cur.rows.length) return err('Loanee not found', 404);
+    const before = cur.rows[0];
+
+    const sets = []; const vals = []; let i = 1;
+    const push = (col, val) => { sets.push(`${col} = $${i++}`); vals.push(val); };
+
+    if (body.first_name !== undefined) push('first_name', String(body.first_name).trim());
+    if (body.last_name !== undefined) push('last_name', String(body.last_name).trim());
+    if (body.first_name !== undefined || body.last_name !== undefined) {
+      const fn = body.first_name !== undefined ? String(body.first_name).trim() : before.first_name;
+      const ln = body.last_name !== undefined ? String(body.last_name).trim() : before.last_name;
+      push('full_name', `${fn} ${ln}`.trim());
+    }
+    if (body.email !== undefined) {
+      if (body.email && !EMAIL_RE.test(String(body.email))) return err('That email address does not look right');
+      push('email', body.email ? String(body.email).toLowerCase().trim() : null);
+    }
+    if (body.phone_mobile !== undefined) push('phone_mobile', normPhone(body.phone_mobile));
+    for (const f of ['position', 'sub_committee', 'notes', 'title']) {
+      if (body[f] !== undefined) push(f, body[f] || null);
+    }
+    // Normalised to NULL when blanked: '' would collide on the partial
+    // unique index as soon as a second loanee was saved without one.
+    if (body.member_number !== undefined) {
+      push('member_number', String(body.member_number || '').trim() || null);
+    }
+    if (body.status !== undefined) {
+      if (!['active', 'inactive'].includes(body.status)) return err('Status must be active or inactive');
+      push('status', body.status);
+    }
+    if (!sets.length) return err('Nothing to update');
+    sets.push(`updated_at = now()`);
+    vals.push(id);
+
+    try {
+      const r = await query(`UPDATE public.loanees SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, vals);
+      await logAudit(request, {
+        profile_id: user.sub, email: user.email,
+        action: 'loanee_updated', detail: `${before.full_name}: ${Object.keys(body).join(', ')}`,
+      });
+      return json(r.rows[0]);
+    } catch (e) {
+      if (e.code === '23505') return err('Another loanee already has that email address', 409);
+      throw e;
+    }
+  },
+});
+
+app.http('loaneesSetGroups', {
+  methods: ['PATCH'], authLevel: 'anonymous', route: 'loanees/{id}/groups',
+  handler: async (request) => {
+    const { user, error, status } = await requireRole(request, 'admin');
+    if (error) return err(error, status);
+    const id = request.params.id;
+    const { body, bad } = await readJson(request); if (bad) return bad;
+    const ids = Array.isArray(body?.group_ids) ? body.group_ids : null;
+    if (!ids) return err('group_ids must be an array (send [] to clear)');
+
+    // Full replace, not a merge — the UI presents this as a checklist,
+    // so "what I see is what is saved" has to hold.
+    const groups = await withTransaction(async (client) => {
+      await client.query(`DELETE FROM public.group_members WHERE loanee_id = $1`, [id]);
+      for (const gid of ids) {
+        await client.query(
+          `INSERT INTO public.group_members (group_id, loanee_id, added_by)
+           VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, [gid, id, user.sub]);
+      }
+      const r = await client.query(
+        `SELECT g.id, g.name FROM public.group_members gm
+         JOIN public.groups g ON g.id = gm.group_id WHERE gm.loanee_id = $1 ORDER BY g.name`, [id]);
+      return r.rows;
+    });
+    await logAudit(request, {
+      profile_id: user.sub, email: user.email,
+      action: 'loanee_groups_changed', detail: `${id} → ${groups.map(g => g.name).join(', ') || '(none)'}`,
+    });
+    return json({ groups });
+  },
+});
+
+// Soft delete. Refused while the person is still holding something —
+// deactivating someone mid-loan would drop their name off the board and
+// quietly orphan the equipment.
+app.http('loaneesDelete', {
+  methods: ['DELETE'], authLevel: 'anonymous', route: 'loanees/{id}',
+  handler: async (request) => {
+    const { user, error, status } = await requireRole(request, 'admin');
+    if (error) return err(error, status);
+    const id = request.params.id;
+    const open = await query(
+      `SELECT count(*)::int AS n FROM public.loan_items li
+       JOIN public.loans l ON l.id = li.loan_id
+       WHERE l.loanee_id = $1 AND li.checked_in_at IS NULL`, [id]);
+    if (open.rows[0].n > 0) {
+      return err(`They still have ${open.rows[0].n} item(s) checked out — check those in first`, 409);
+    }
+    const r = await query(
+      `UPDATE public.loanees SET status = 'inactive', updated_at = now() WHERE id = $1 RETURNING full_name`, [id]);
+    if (!r.rows.length) return err('Loanee not found', 404);
+    await logAudit(request, {
+      profile_id: user.sub, email: user.email,
+      action: 'loanee_deactivated', detail: r.rows[0].full_name,
+    });
+    return json({ ok: true });
+  },
+});
+
+module.exports = {};
