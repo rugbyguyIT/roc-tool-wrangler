@@ -101,6 +101,15 @@ This creates every table, the `asset_eligible()` function, the `v_open_loan_item
 the starter categories, locations and groups. Every statement is `IF NOT EXISTS` guarded, so it is
 safe to re-run.
 
+Then apply the roster migration, which adds Member Number, Title and the roster-sync bookkeeping:
+
+```bash
+psql "$DATABASE_URL" -f api/migrations/002_roster.sql
+```
+
+Also idempotent. `scripts/setup-azure.sh` runs both for you on a fresh install; you only need these
+by hand when upgrading an environment that already exists.
+
 Expect a wall of `CREATE TABLE` / `CREATE INDEX`. If you see
 `ERROR: extension "pg_trgm" is not allow-listed`, go back and do step 1.3.
 
@@ -229,6 +238,6 @@ attempts are logged with the email tried, the IP and the reason.
 ## Anything periodic
 
 Static Web Apps' managed Functions are **HTTP-only — there is no timer trigger.** If you later want
-overdue reminders, a nightly digest, or a sweep of abandoned import batches, the pattern is a
+overnight reminders, a nightly digest, or a sweep of abandoned import batches, the pattern is a
 scheduled GitHub Actions workflow that `curl`s a secret-protected endpoint (8 Second Rides does
 exactly this for its notification outbox). Worth knowing before promising anyone automated reminders.
