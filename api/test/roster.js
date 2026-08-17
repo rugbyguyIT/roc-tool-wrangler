@@ -136,7 +136,7 @@ async function verdictCounts(query, batchId) {
   TOKEN = login.body?.token;
   check('admin created and signed in', !!TOKEN, login.body);
 
-  // ══ FIRST IMPORT ═════════════════════════════════════════════════════════════════
+  // ══ FIRST IMPORT ═════════════════════════════════════════════════════
   section('First import — 493 rows');
   const p1 = await preview(FIX.rows, FIX.headers);
   const c1 = await verdictCounts(query, p1.batch_id);
@@ -181,7 +181,7 @@ async function verdictCounts(query, batchId) {
      WHERE lower(l.sub_committee) = 'base' LIMIT 1`);
   check('Base members get the staff (Base) role', baseProf.rows[0]?.role === 'staff', baseProf.rows[0]);
 
-  // ══ SECOND IMPORT — identical file ════════════════════════════════════════════════════════
+  // ══ SECOND IMPORT — identical file ═══════════════════════════════════
   section('Second import — identical file, must be a no-op');
   const p2 = await preview(FIX.rows, FIX.headers);
   const c2 = await verdictCounts(query, p2.batch_id);
@@ -197,7 +197,7 @@ async function verdictCounts(query, batchId) {
   const n2 = await query(`SELECT count(*)::int AS c FROM public.loanees`);
   check('still exactly 493 loanees — no duplicates', n2.rows[0].c === 493, n2.rows[0]);
 
-  // ══ THIRD IMPORT — real-world edits ═════════════════════════════════════════════════════
+  // ══ THIRD IMPORT — real-world edits ══════════════════════════════════
   section('Third import — changed cells, a departure, a hand edit');
 
   // A hand-written note in the app: a re-import must never touch it.
@@ -266,7 +266,7 @@ async function verdictCounts(query, batchId) {
   const newGroups = await query(`SELECT count(*)::int AS c FROM public.groups`);
   check('no new groups created after the first import', newGroups.rows[0].c === 13, newGroups.rows[0]);
 
-  // ══ FOURTH IMPORT — the departed member returns ══════════════════════════════════════════════════
+  // ══ FOURTH IMPORT — the departed member returns ══════════════════════
   section('Fourth import — a returning member reactivates');
   const p4 = await preview(FIX.rows, FIX.headers);   // original file: they're back
   const c4 = await verdictCounts(query, p4.batch_id);
@@ -277,7 +277,7 @@ async function verdictCounts(query, batchId) {
   check('returning member is active again', back.rows[0]?.status === 'active', back.rows[0]);
   check('stale deactivation reason cleared', !back.rows[0]?.status_reason, back.rows[0]);
 
-  // ══ Summary ════════════════════════════════════════════════════════════════
+  // ══ Summary ══════════════════════════════════════════════════════════
   console.log(`\n\x1b[1m${passed} passed, ${failures.length} failed\x1b[0m`);
   if (failures.length) { failures.forEach(f => console.log(`  \x1b[31m· ${f}\x1b[0m`)); process.exit(1); }
   process.exit(0);
