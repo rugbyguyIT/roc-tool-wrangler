@@ -680,7 +680,13 @@ async function downloadImportErrors(batchId) {
   sections.forEach(s => s && io.observe(s));
 
   await loadGroups();
-  await Promise.all([loadDashboard(), loadLoanees(), loadUsers(), loadLookups(), loadSettings(), loadLogs()]);
+  await Promise.all([
+    loadDashboard(), loadLoanees(), loadUsers(), loadLookups(), loadSettings(), loadLogs(),
+    // Guarded because repairs.js is loaded on three different pages and
+    // only admin.html has somewhere to render these.
+    typeof loadRepairs === 'function' ? loadRepairs() : null,
+    typeof loadRepairShops === 'function' ? loadRepairShops() : null,
+  ]);
 
   if (location.hash) document.querySelector(location.hash)?.scrollIntoView({ behavior: 'smooth' });
 })();
