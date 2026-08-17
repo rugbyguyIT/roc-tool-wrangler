@@ -1,4 +1,4 @@
-// ──────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 // HLSR Asset Tracker — loanees (the people who borrow; they never log in)
 //   GET    /api/loanees              any signed-in role
 //   GET    /api/loanees/lookup?q=    any  (powers the picker)
@@ -8,7 +8,7 @@
 //   PATCH  /api/loanees/{id}         admin
 //   PATCH  /api/loanees/{id}/groups  admin
 //   DELETE /api/loanees/{id}         admin (soft delete)
-// ──────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 const { app } = require('@azure/functions');
 const { query, withTransaction } = require('../db');
 const {
