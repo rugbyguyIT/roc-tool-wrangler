@@ -11,7 +11,7 @@
 // Reuses loadXlsx() from importer.js for parsing.
 // ═══════════════════════════════════════════════════════════════════════
 const ROSTER_CHUNK = 250;
-let RS = null;   // { filename, headers, rows, batchId, preview }
+let RS = null;   // { filename, headers, rows, batchId, preview, columnMap }
 
 async function openRosterSync() {
   try { await loadXlsx(); }
@@ -62,7 +62,7 @@ function parseRoster(file) {
     }
     if (!rows.length) return toastMsg('That sheet is empty', 'No data rows found.', 'error');
 
-    RS = { filename: file.name, headers, rows: rows.map((r, i) => ({ ...r, row_number: i + 2 })), batchId: null };
+    RS = { filename: file.name, headers, rows: rows.map((r, i) => ({ ...r, row_number: i + 2 })), batchId: null, columnMap: null };
     runRosterPreview();
   };
   reader.readAsArrayBuffer(file);
@@ -78,6 +78,7 @@ async function runRosterPreview() {
     const final = i + ROSTER_CHUNK >= total;
     const { data, error } = await api('/roster/preview', 'POST', {
       batch_id: RS.batchId, filename: RS.filename, headers: RS.headers, rows: slice, final,
+      column_map: RS.columnMap || undefined,
     });
     if (error) return toastMsg('Roster check failed', error, 'error');
     RS.batchId = data.batch_id;
@@ -129,6 +130,19 @@ function showRosterPreview(p) {
       Ignored columns: ${p.unknown_columns.map(esc).join(', ')}</div>`);
   }
 
+  // The mapping is always visible, not hidden behind an "advanced" link:
+  // if the rodeo renames a column, the wrong-looking numbers above and the
+  // mapping that caused them should be on the same screen.
+  const mapped = Object.entries(p.column_map || {});
+  notes.push(`<div class="small">
+    <i class="fa-solid fa-right-left"></i> Columns in use:
+    ${mapped.map(([h, f]) => `<span class="class-chip class-exec">${esc(h)} → ${esc(f)}</span>`).join(' ')}
+    <div style="margin-top:8px">
+      <button type="button" class="btn btn-sm" onclick="editRosterMapping()">
+        <i class="fa-solid fa-pen"></i> Change column mapping</button>
+      ${p.saved_map ? '<span class="small muted" style="margin-left:8px">Using your saved mapping.</span>' : ''}
+    </div></div>`);
+
   const deact = (p.deactivate || []);
   const deactBlock = deact.length ? `
     <div class="card card-sm" style="margin-bottom:14px;border-left:3px solid var(--amber)">
@@ -162,6 +176,60 @@ function showRosterPreview(p) {
       if (!form) return;
       const box = form.querySelector('[name="apply_deactivations"]');
       commitRoster(box ? box.checked : true);
+    });
+}
+
+// ── Mapping editor ─────────────────────────────────────────────────────
+// Every column in the file gets a dropdown. Choosing "(ignore)" is a real
+// choice, not an absence — it is what stops a renamed column silently
+// falling back to auto-detection on the next run.
+function editRosterMapping() {
+  const p = RS.preview || {};
+  const fields = p.mappable_fields || [];
+  const current = RS.columnMap || p.column_map || {};
+
+  formModal('Column mapping', `
+    <div class="small muted" style="margin-bottom:14px">
+      What each column in <b>${esc(RS.filename)}</b> means. Change anything that's wrong —
+      what you confirm is saved and used automatically next time, so a changed export
+      is a one-time fix.
+    </div>
+    <div style="max-height:400px;overflow:auto">
+      ${RS.headers.map((h, i) => `
+        <div class="form-row" style="align-items:center;margin-bottom:6px">
+          <div class="form-group" style="margin:0">
+            <div class="small mono">${esc(h)}</div>
+            <div class="small muted">e.g. ${esc(String((RS.rows[0] || {})[h] ?? '').slice(0, 28) || '—')}</div>
+          </div>
+          <div class="form-group" style="margin:0">
+            <select class="form-input" data-header="${esc(h)}">
+              <option value="">(ignore this column)</option>
+              ${fields.map(f => `<option value="${f.key}"${current[h] === f.key ? ' selected' : ''}>${esc(f.label)}</option>`).join('')}
+            </select>
+          </div>
+        </div>`).join('')}
+    </div>
+    <div class="small muted" style="margin-top:12px">
+      <i class="fa-solid fa-circle-info"></i> Member Number, First Name and Last Name are required —
+      the import can't match people without them.
+    </div>`,
+    { icon: 'fa-right-left', submitLabel: 'Re-check the file', wide: true })
+    .then(form => {
+      if (!form) return;
+      const map = {};
+      form.querySelectorAll('select[data-header]').forEach(sel => {
+        map[sel.getAttribute('data-header')] = sel.value;
+      });
+      const used = Object.values(map);
+      for (const need of ['member_number', 'first_name', 'last_name']) {
+        if (!used.includes(need)) {
+          return toastMsg('Mapping incomplete',
+            `Nothing is mapped to ${need.replace(/_/g, ' ')}. The import can't run without it.`, 'error');
+        }
+      }
+      RS.columnMap = map;
+      RS.batchId = null;          // a different mapping is a different import
+      runRosterPreview();
     });
 }
 
