@@ -114,7 +114,15 @@ column mapping:
 psql "$DATABASE_URL" -f api/migrations/003_repairs.sql
 ```
 
-All three are idempotent. `scripts/setup-azure.sh` applies every migration in `api/migrations/` in
+Then the bulk-administration migration, which adds the server-side clear-roster PIN
+(seeded to **1932** — change it with `UPDATE public.app_settings SET roster_clear_pin_hash =
+crypt('NEWPIN', gen_salt('bf'));`):
+
+```bash
+psql "$DATABASE_URL" -f api/migrations/004_roster_admin.sql
+```
+
+All four are idempotent. `scripts/setup-azure.sh` applies every migration in `api/migrations/` in
 order on a fresh install; you only need these by hand when upgrading an environment that already
 exists.
 
