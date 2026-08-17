@@ -23,6 +23,9 @@ const SELECT_LIST = `
   SELECT a.id, a.asset_tag, a.title, a.description, a.serial, a.status,
          a.primary_photo_url, a.notes, a.value_cents, a.purchase_date,
          a.category_id, c.name AS category, c.icon AS category_icon,
+         -- Where this kind of thing goes when it breaks, so the
+         -- send-for-repair form can pre-select without a second call.
+         c.default_repair_shop_id, rs.name AS default_repair_shop,
          a.location_id, loc.name AS location,
          a.created_at, a.updated_at,
          (SELECT count(*) FROM public.asset_groups ag WHERE ag.asset_id = a.id)::int AS restriction_count,
@@ -31,6 +34,7 @@ const SELECT_LIST = `
          v.checked_out_at AS current_since
   FROM public.assets a
   LEFT JOIN public.asset_categories c   ON c.id   = a.category_id
+  LEFT JOIN public.repair_shops     rs  ON rs.id  = c.default_repair_shop_id
   LEFT JOIN public.asset_locations  loc ON loc.id = a.location_id
   LEFT JOIN public.v_open_loan_items v  ON v.asset_id = a.id`;
 
