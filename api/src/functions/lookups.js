@@ -14,7 +14,9 @@ const { json, err, requireAuth, requireRole, logAudit, readJson, qs } = require(
 // fkColumn:   the assets column pointing at it (guards DELETE)
 // extraCols:  columns beyond name/sort_order/active
 const KINDS = {
-  categories: { table: 'asset_categories', fk: 'category_id', extra: ['icon'],  label: 'Category' },
+  // default_repair_shop_id rides along as an editable extra so setting
+  // "forklifts go to EAC" is admin work, not a migration.
+  categories: { table: 'asset_categories', fk: 'category_id', extra: ['icon', 'default_repair_shop_id'], label: 'Category' },
   locations:  { table: 'asset_locations',  fk: 'location_id', extra: ['notes'], label: 'Location' },
 };
 
