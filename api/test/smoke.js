@@ -104,6 +104,12 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   // settings row is missing" bug was found — put the row back, and there
   // is a regression test for the missing-row case further down.
   await query(`INSERT INTO public.app_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+  // Migration 005 gave asset_categories a FK to repair_shops, which has a
+  // created_by FK to profiles — so TRUNCATE profiles CASCADE now reaches
+  // the lookup lists that it did not before. Restore the migration's seed
+  // rather than asserting against whatever survived.
+  await query(require('fs').readFileSync(require('path').join(__dirname, 'seed-lookups.sql'), 'utf8'));
+
   await query(`UPDATE public.app_settings SET default_loan_hours = 12, overdue_grace_hours = 0 WHERE id = 1`);
   // Groups are seed DATA, so the truncate above removes them. Put the
   // migration's three back so the suite starts from a fresh-install state.
