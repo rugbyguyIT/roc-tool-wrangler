@@ -59,7 +59,7 @@ function render() {
       <td style="width:56px">${assetThumb(a.primary_photo_url, 40)}</td>
       <td>
         <div style="font-weight:600">${esc(a.title)}</div>
-        <div class="small muted mono">${esc(a.asset_tag)}${a.serial ? ' · ' + esc(a.serial) : ''}</div>
+        <div class="small muted mono">${esc(a.asset_tag)}</div>
       </td>
       <td class="small">${esc(a.category || '—')}</td>
       <td>${statusBadge(a.status, a.current_overdue)}</td>
@@ -113,7 +113,6 @@ async function openAsset(id) {
     ['Tag', `<span class="mono">${esc(a.asset_tag)}</span>`],
     ['Category', esc(a.category || '—')],
     ['Location', esc(a.location || '—')],
-    ['Serial', a.serial ? `<span class="mono">${esc(a.serial)}</span>` : '—'],
     ['Description', esc(a.description || '—')],
     ['Notes', esc(a.notes || '—')],
     ['Restricted to', a.groups.length
@@ -185,13 +184,19 @@ function assetFormFields(a) {
         <input class="form-input" name="asset_tag" required value="${esc(a.asset_tag || '')}" placeholder="ROCFEL05" />
       </div>
       <div class="form-group">
-        <label class="form-label">Serial</label>
-        <input class="form-input" name="serial" value="${esc(a.serial || '')}" />
+        <label class="form-label">Name *</label>
+        <input class="form-input" name="title" required value="${esc(a.title || '')}" placeholder="ROC Front End Loader 05" />
       </div>
     </div>
+    <!-- Photo lives on the form for both create and edit. Previously it was
+         only reachable from the detail screen, which meant every new asset
+         was created without one and someone had to remember to go back. -->
     <div class="form-group">
-      <label class="form-label">Title *</label>
-      <input class="form-input" name="title" required value="${esc(a.title || '')}" placeholder="ROC Front End Loader 05" />
+      <label class="form-label">Photo</label>
+      <input class="form-input" type="file" name="photo_file" accept="image/*" />
+      <div class="small muted">${a.primary_photo_url
+        ? 'Choosing a new one adds it alongside the existing photos.'
+        : 'Optional — a picture makes it far easier to find at the counter.'}</div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -213,12 +218,32 @@ function assetFormFields(a) {
     </div>`;
 }
 
+// The photo is uploaded AFTER the asset is saved, because it needs the
+// asset's id. A failed photo never fails the save — the asset is the thing
+// that matters, and a missing picture is fixable in one click.
+async function uploadFormPhoto(form, assetId) {
+  const input = form.querySelector('[name="photo_file"]');
+  const file = input && input.files && input.files[0];
+  if (!file) return;
+  try {
+    toastMsg('Uploading the photo', 'Resizing and sending…');
+    const dataUrl = await fileToDataUrl(file);
+    const { error } = await api(`/assets/${assetId}/photos`, 'POST', { mode: 'upload', data_url: dataUrl });
+    if (error) toastMsg('Saved, but the photo failed', error, 'error');
+  } catch (e) {
+    toastMsg('Saved, but the photo failed', e.message, 'error');
+  }
+}
+
 async function newAsset() {
   const form = await formModal('New asset', assetFormFields(), { icon: 'fa-plus', submitLabel: 'Create' });
   if (!form) return;
   const v = formValues(form);
-  const { error } = await api('/assets', 'POST', v);
+  delete v.photo_file;                 // sent separately, not as a field
+  const { data, error } = await api('/assets', 'POST', v);
   if (error) return toastMsg('Could not create it', error, 'error');
+  const newId = data?.asset?.id || data?.id;
+  if (newId) await uploadFormPhoto(form, newId);
   toastMsg('Asset created', `${v.asset_tag} is in the catalog.`, 'ok');
   load();
 }
@@ -228,8 +253,11 @@ async function editAsset(id) {
   if (!a) return;
   const form = await formModal(`Edit ${a.asset_tag}`, assetFormFields(a), { icon: 'fa-pen' });
   if (!form) return;
-  const { error } = await api(`/assets/${id}`, 'PATCH', formValues(form));
+  const v = formValues(form);
+  delete v.photo_file;
+  const { error } = await api(`/assets/${id}`, 'PATCH', v);
   if (error) return toastMsg('Could not save', error, 'error');
+  await uploadFormPhoto(form, id);
   toastMsg('Saved', 'The asset has been updated.', 'ok');
   load();
 }
