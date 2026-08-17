@@ -64,6 +64,40 @@ function buildRosterMap(headers) {
   return { map, unknown };
 }
 
+// Every field a column can be mapped to, for the UI's dropdown. Order is
+// the order they appear in the mapping editor.
+const MAPPABLE_FIELDS = [
+  { key: 'member_number',  label: 'Member Number (Customer Number)', required: true },
+  { key: 'first_name',     label: 'First Name',                      required: true },
+  { key: 'preferred_name', label: 'Preferred Name (wins over First)', required: false },
+  { key: 'last_name',      label: 'Last Name',                       required: true },
+  { key: 'title',          label: 'Title',                           required: false },
+  { key: 'sub_committee',  label: 'Committee',                       required: false },
+  { key: 'phone_mobile',   label: 'Phone',                           required: false },
+  { key: 'email',          label: 'Email',                           required: false },
+  { key: 'zip',            label: 'Zip (used as the initial password)', required: false },
+];
+
+// Resolve the mapping actually used for an import.
+//
+// Precedence: what the admin just chose > what was saved last time > what
+// auto-detection found. Saved and explicit entries are ignored when they
+// name a header this file does not have, so a stale saved mapping degrades
+// to auto-detection for the columns that moved rather than blanking them.
+// An empty-string field means "deliberately ignore this column", which is
+// why it deletes rather than skipping.
+function resolveMap(headers, saved, explicit) {
+  const { map: detected } = buildRosterMap(headers);
+  const map = { ...detected };
+  for (const source of [saved, explicit]) {
+    for (const [h, f] of Object.entries(source || {})) {
+      if (!headers.includes(h)) continue;
+      if (f) map[h] = f; else delete map[h];
+    }
+  }
+  return { map, detected, unknown: headers.filter(h => !map[h]) };
+}
+
 function cell(row, map, field) {
   for (const [header, f] of Object.entries(map)) {
     if (f === field) {
@@ -176,6 +210,7 @@ function diffLoanee(existing, rec) {
 
 module.exports = {
   ROSTER_ALIASES, LEADERSHIP_TITLES, BASE_SUBCOMMITTEE, SYNCED_FIELDS,
+  MAPPABLE_FIELDS, resolveMap,
   normHeader, buildRosterMap, cell, normPhone, zip5,
   displayFirstName, roleFor, normalizeRow, validate, loginBlocker, diffLoanee,
 };
