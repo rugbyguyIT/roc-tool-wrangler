@@ -22,7 +22,7 @@
 # ═══════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
-# ── Configuration ──────────────────────────────────────────────────────
+# ── Configuration ─────────────────────────────────────────────────────────────
 # Override inline, e.g.:  STORAGE=rocwranglerpics ./scripts/setup-azure.sh
 RG="${RG:-roc-tool-wrangler-rg}"
 LOCATION="${LOCATION:-southcentralus}"          # database + storage
@@ -41,7 +41,7 @@ REPO_BRANCH="${REPO_BRANCH:-main}"
 
 SECRETS_FILE=".azure-secrets.env"
 
-# ── Output helpers ─────────────────────────────────────────────────────
+# ── Output helpers ─────────────────────────────────────────────────────────────
 BOLD=$'\e[1m'; DIM=$'\e[2m'; GREEN=$'\e[32m'; YELLOW=$'\e[33m'; RED=$'\e[31m'; RESET=$'\e[0m'
 step()  { printf '\n%s▸ %s%s\n' "$BOLD" "$1" "$RESET"; }
 ok()    { printf '  %s✓%s %s\n' "$GREEN" "$RESET" "$1"; }
@@ -49,7 +49,7 @@ skip()  { printf '  %s·%s %s %s(already there)%s\n' "$DIM" "$RESET" "$1" "$DIM"
 warn()  { printf '  %s!%s %s\n' "$YELLOW" "$RESET" "$1"; }
 die()   { printf '\n%s✗ %s%s\n' "$RED" "$1" "$RESET" >&2; exit 1; }
 
-# ── Preflight ──────────────────────────────────────────────────────────
+# ── Preflight ────────────────────────────────────────────────────────────────
 step "Checking prerequisites"
 
 command -v az   >/dev/null 2>&1 || die "Azure CLI not found. Easiest fix: run this in Azure Cloud Shell — https://shell.azure.com"
@@ -64,7 +64,7 @@ command -v psql >/dev/null 2>&1 || { HAVE_PSQL=0; warn "psql not found — the s
 # Storage names are the fussiest thing in Azure. Catch it now, not later.
 [[ "$STORAGE" =~ ^[a-z0-9]{3,24}$ ]] || die "STORAGE ('$STORAGE') must be 3-24 characters, lowercase letters and digits only."
 
-# ── Secrets ────────────────────────────────────────────────────────────
+# ── Secrets ───────────────────────────────────────────────────────────────────
 step "Preparing secrets"
 if [[ -f "$SECRETS_FILE" ]]; then
   # shellcheck disable=SC1090
@@ -98,7 +98,7 @@ EOF
   ok "Generated new secrets → $SECRETS_FILE"
 fi
 
-# ── 1. Resource group ──────────────────────────────────────────────────
+# ── 1. Resource group ────────────────────────────────────────────────────────
 step "1/8  Resource group: $RG"
 if [[ "$(az group exists --name "$RG")" == "true" ]]; then
   skip "$RG"
@@ -107,7 +107,7 @@ else
   ok "Created in $LOCATION"
 fi
 
-# ── 2. PostgreSQL ──────────────────────────────────────────────────────
+# ── 2. PostgreSQL ───────────────────────────────────────────────────────────────
 step "2/8  PostgreSQL: $DB_SERVER   ${DIM}(5-10 minutes — this is the slow one)${RESET}"
 if az postgres flexible-server show -g "$RG" -n "$DB_SERVER" >/dev/null 2>&1; then
   skip "$DB_SERVER"
@@ -137,7 +137,7 @@ else
   ok "Database '$DB_NAME' created"
 fi
 
-# ── 3. Firewall ────────────────────────────────────────────────────────
+# ── 3. Firewall ────────────────────────────────────────────────────────────────
 # Requires the server to have been created with --public-access Enabled.
 # 'None' reads like the right choice but leaves public access off, and
 # then every firewall-rule call fails with "not supported for a server
@@ -168,7 +168,7 @@ else
   warn "Could not detect your public IP — add a firewall rule by hand if psql can't connect."
 fi
 
-# ── 4. Extensions ──────────────────────────────────────────────────────
+# ── 4. Extensions ───────────────────────────────────────────────────────────────
 # The step everyone misses doing this by hand. pgcrypto gives us UUIDs,
 # pg_trgm powers the fuzzy search behind every picker. Neither exists on
 # Azure until allow-listed AND the server restarted — and the migration's
@@ -192,7 +192,7 @@ else
   ok "Server restarted so it takes effect"
 fi
 
-# ── 5. Storage ─────────────────────────────────────────────────────────
+# ── 5. Storage ─────────────────────────────────────────────────────────────────
 step "5/8  Storage account: $STORAGE   ${DIM}(asset photos)${RESET}"
 if az storage account show -g "$RG" -n "$STORAGE" >/dev/null 2>&1; then
   skip "$STORAGE"
@@ -211,7 +211,7 @@ fi
 STORAGE_CONN=$(az storage account show-connection-string -g "$RG" -n "$STORAGE" --query connectionString -o tsv)
 ok "Connection string retrieved"
 
-# ── 6. Static Web App ──────────────────────────────────────────────────
+# ── 6. Static Web App ─────────────────────────────────────────────────────────────
 step "6/8  Static Web App: $SWA_NAME"
 if az staticwebapp show -g "$RG" -n "$SWA_NAME" >/dev/null 2>&1; then
   skip "$SWA_NAME"
@@ -231,7 +231,7 @@ SWA_HOST=$(az staticwebapp show -g "$RG" -n "$SWA_NAME" --query defaultHostname 
 APP_URL="https://$SWA_HOST"
 ok "URL: $APP_URL"
 
-# ── 7. App settings ────────────────────────────────────────────────────
+# ── 7. App settings ─────────────────────────────────────────────────────────────
 # Set BEFORE deploying so the Functions have their config the moment they
 # start, rather than booting once without a database and erroring.
 step "7/8  Application settings"
@@ -248,7 +248,7 @@ grep -q '^DATABASE_URL=' "$SECRETS_FILE" 2>/dev/null || {
   printf "DATABASE_URL='%s'\nAPP_URL='%s'\n" "$DATABASE_URL" "$APP_URL" >> "$SECRETS_FILE"
 }
 
-# ── 8. Deploy ──────────────────────────────────────────────────────────
+# ── 8. Deploy ─────────────────────────────────────────────────────────────────
 step "8/8  Deployment"
 # Nothing to do here: linking the repo above started a GitHub Actions run,
 # and every future push to main redeploys automatically. Watch it at:
@@ -256,23 +256,34 @@ step "8/8  Deployment"
 ok "GitHub Actions is building and deploying — watch $REPO_URL/actions"
 ok "First run takes 3-5 minutes"
 
-# ── Schema ─────────────────────────────────────────────────────────────
+# ── Schema ─────────────────────────────────────────────────────────────────────
 step "Loading the database schema"
 if [[ "$HAVE_PSQL" == "1" ]]; then
-  if PGPASSWORD="$DB_PASSWORD" psql \
-      "host=$DB_HOST port=5432 dbname=$DB_NAME user=$DB_ADMIN sslmode=require" \
-      -v ON_ERROR_STOP=1 -q --set=client_min_messages=warning \
-      -f api/migrations/001_schema.sql; then
+  # Every migration in order, not just the first — otherwise a fresh
+  # install silently lacks whatever the later ones add.
+  MIGRATION_FAILED=0
+  for m in api/migrations/*.sql; do
+    if PGPASSWORD="$DB_PASSWORD" psql \
+        "host=$DB_HOST port=5432 dbname=$DB_NAME user=$DB_ADMIN sslmode=require" \
+        -v ON_ERROR_STOP=1 -q --set=client_min_messages=warning -f "$m"; then
+      ok "Applied $(basename "$m")"
+    else
+      MIGRATION_FAILED=1; break
+    fi
+  done
+  if [[ "$MIGRATION_FAILED" == "0" ]]; then
     ok "Schema loaded — tables, functions, views and starter lookup data"
   else
     die "Schema load failed. If it mentions an extension, the restart in step 4 may still be settling — wait a minute and re-run this script."
   fi
 else
-  warn "Run this yourself:"
-  printf '\n    psql %s -f api/migrations/001_schema.sql\n' "'$DATABASE_URL'"
+  warn "Run these yourself, in order:"
+  for m in api/migrations/*.sql; do
+    printf '    psql %s -f %s\n' "'$DATABASE_URL'" "$m"
+  done
 fi
 
-# ── Done ───────────────────────────────────────────────────────────────
+# ── Done ───────────────────────────────────────────────────────────────────
 cat <<EOF
 
 ${BOLD}${GREEN}Done. Your app is live at ${APP_URL}${RESET}

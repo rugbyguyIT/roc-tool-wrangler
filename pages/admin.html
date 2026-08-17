@@ -80,6 +80,7 @@
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
               <div class="section-title" style="margin:0"><i class="fa-solid fa-users"></i> Loanees</div>
               <div class="pill-row">
+                <button class="btn btn-sm btn-primary" onclick="openRosterSync()"><i class="fa-solid fa-rotate"></i> Sync Roster</button>
                 <button class="btn btn-sm" onclick="openImport('loanees')"><i class="fa-solid fa-file-import"></i> Import CSV / Excel</button>
                 <button class="btn btn-sm btn-primary" onclick="newLoanee()"><i class="fa-solid fa-plus"></i> Add loanee</button>
               </div>
@@ -111,7 +112,7 @@
               <button class="btn btn-sm btn-primary" onclick="newUser()"><i class="fa-solid fa-plus"></i> Add user</button>
             </div>
             <div class="small muted" style="margin:8px 0 12px">
-              The people who sign in. <b>Admin</b> manages everything · <b>Staff</b> works the counter ·
+              The people who sign in. <b>Admin</b> manages everything · <b>Base</b> works the counter ·
               <b>Leadership</b> can only look at what's out.
             </div>
             <div id="users-table"></div>
@@ -156,6 +157,7 @@
      in on demand the first time someone opens an import, so the admin
      console — which people open all day on venue wifi — stays light. -->
 <script src="/js/importer.js"></script>
+<script src="/js/roster-sync.js"></script>
 <script src="/js/admin.js"></script>
 </body>
 </html>
