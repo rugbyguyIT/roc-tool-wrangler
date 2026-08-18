@@ -25,5 +25,5 @@
   --accentglow: rgba(239, 118, 34, 0.14);
 
   /* Logo used by the login orb; swap the file, not the rule. */
-  --brand-logo: url('/login-logo.svg');
+  --brand-logo: url('/login-logo.png');
 }

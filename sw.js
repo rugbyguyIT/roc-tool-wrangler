@@ -12,7 +12,7 @@
 // scope. When they land, add 'push' + 'notificationclick' listeners
 // here; nothing else in this file changes.
 // ─────────────────────────────────────────────────────────────
-const CACHE_VERSION = 'hlsr-assets-0.8.4';
+const CACHE_VERSION = 'hlsr-assets-0.9.1';
 
 self.addEventListener('install', () => {
   self.skipWaiting(); // activate the new SW immediately
