@@ -22,15 +22,11 @@
       <div class="brand-mark"><i class="fa-solid fa-screwdriver-wrench"></i></div>
       <div class="brand-word"><b data-app-short>HLSR Assets</b><span>Admin</span></div>
     </div>
-    <!-- Hardcoded so renderTopNav() leaves it alone: these are page links,
-         while the sections below are in-page anchors. -->
-    <div class="topnav-links">
-      <a class="nav-item" href="/pages/staff.html"><i class="fa-solid fa-right-left"></i><span>Check In / Out</span></a>
-      <a class="nav-item" href="/pages/board.html"><i class="fa-solid fa-tower-observation"></i><span>Out Now</span></a>
-      <a class="nav-item" href="/pages/assets.html"><i class="fa-solid fa-boxes-stacked"></i><span>Assets</span></a>
-      <a class="nav-item" href="/pages/reports.html"><i class="fa-solid fa-chart-line"></i><span>Reports</span></a>
-      <a class="nav-item active" href="/pages/admin.html"><i class="fa-solid fa-gear"></i><span>Admin</span></a>
-    </div>
+    <!-- Filled by renderTopNav(). Deliberately empty: this used to be
+         hardcoded, which meant two lists of links that drifted — adding
+         Loanees to the JS one left Admin still showing the old five, so
+         the entry vanished the moment you opened this page. -->
+    <div class="topnav-links"></div>
     <div class="topnav-user">
       <div class="avatar" id="user-avatar"><i class="fa-solid fa-user"></i></div>
       <div class="user-meta">
