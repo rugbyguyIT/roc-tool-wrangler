@@ -74,7 +74,7 @@ function requireLogin(...roles) {
   return p;
 }
 
-// ── Formatting helpers ─────────────────────────────────────────
+// ── Formatting helpers ───────────────────────────────────────
 function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
 
 function fmtWhen(iso, fallback = '—') {
@@ -124,7 +124,7 @@ function toastMsg(title, body, kind) {
   setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 320); }, kind === 'error' ? 8000 : 5000);
 }
 
-// ── Branding ───────────────────────────────────────────────────
+// ── Branding ─────────────────────────────────────────────────
 // Two sources, deliberately, in this order:
 //
 //   1. The constants in js/config.js — always available, including on the
@@ -145,13 +145,23 @@ function _cachedBrand() {
   catch { return null; }
 }
 
+// "…and Rodeo" → "…and Rodeo™", without ever doubling it up.
+function orgWithMark(org) {
+  const s = String(org || '').trim();
+  if (!s || /[™®]\s*$/.test(s)) return s;
+  return /rodeo$/i.test(s) ? s + '™' : s;
+}
+
 function applyBrand(brand) {
   const b = brand || {};
   const name = b.app_display_name || APP_NAME;
   // No separate short name in the database: a short name that drifts from
   // the real one is worse than a slightly long header.
   const short = b.app_display_name || APP_SHORT;
-  const org = b.org_display_name || APP_ORG;
+  // The show's name is a registered mark. The database value is edited by
+  // hand in Admin → Settings and will not always carry the symbol, so add
+  // it here rather than relying on whoever typed it last.
+  const org = orgWithMark(b.org_display_name || APP_ORG);
 
   const map = { 'data-app-name': name, 'data-app-short': short, 'data-app-org': org };
   for (const [attr, val] of Object.entries(map)) {
@@ -195,7 +205,7 @@ if (typeof window !== 'undefined') {
 // Register the service worker on every page.
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
-// ── Client-side application/error logging ───────────────────────
+// ── Client-side application/error logging ─────────────────────────
 // Fire and forget: never blocks the UI, never throws. Surfaces in
 // Admin → Settings → Application Logs. Only sent when signed in;
 // the login page just console.errors.
