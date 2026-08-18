@@ -129,7 +129,14 @@ Grounds, golf carts → ADC, forklifts → EAC:
 psql "$DATABASE_URL" -f api/migrations/005_shop_defaults.sql
 ```
 
-All five are idempotent. `scripts/setup-azure.sh` applies every migration in `api/migrations/` in
+Then the repair-location flag, which keeps EAC/ADC and the maintenance barn out of the asset
+form's Location picker:
+
+```bash
+psql "$DATABASE_URL" -f api/migrations/006_repair_locations.sql
+```
+
+All six are idempotent. `scripts/setup-azure.sh` applies every migration in `api/migrations/` in
 order on a fresh install; you only need these by hand when upgrading an environment that already
 exists.
 
@@ -261,6 +268,6 @@ attempts are logged with the email tried, the IP and the reason.
 ## Anything periodic
 
 Static Web Apps' managed Functions are **HTTP-only — there is no timer trigger.** If you later want
-overdue reminders, a nightly digest, or a sweep of abandoned import batches, the pattern is a
+overvdue reminders, a nightly digest, or a sweep of abandoned import batches, the pattern is a
 scheduled GitHub Actions workflow that `curl`s a secret-protected endpoint (8 Second Rides does
 exactly this for its notification outbox). Worth knowing before promising anyone automated reminders.

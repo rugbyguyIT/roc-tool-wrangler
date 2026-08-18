@@ -17,7 +17,7 @@ const KINDS = {
   // default_repair_shop_id rides along as an editable extra so setting
   // "forklifts go to EAC" is admin work, not a migration.
   categories: { table: 'asset_categories', fk: 'category_id', extra: ['icon', 'default_repair_shop_id'], label: 'Category' },
-  locations:  { table: 'asset_locations',  fk: 'location_id', extra: ['notes'], label: 'Location' },
+  locations:  { table: 'asset_locations',  fk: 'location_id', extra: ['notes', 'is_repair_destination'], label: 'Location' },
 };
 
 function register(kind) {

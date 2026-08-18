@@ -558,7 +558,17 @@ a{color:var(--orange);text-decoration:none} a:hover{text-decoration:underline}
 
 
 /* ── Sortable table headers + row selection ─────────────────────────── */
-.th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
-.th-sort:hover { color:var(--orange); }
-.th-sort.is-sorted { color:var(--orange); }
+.th-sortable { white-space:nowrap; vertical-align:top; }
+.th-sortable .th-label { margin-bottom:4px; }
+.th-sortable.is-sorted .th-label { color:var(--orange); }
+/* Deliberately small and quiet: nine of these across a header row should
+   read as controls you can reach for, not as the loudest thing on screen. */
+.th-select {
+  font: inherit; font-size:11px; font-weight:400;
+  padding:2px 4px; border:1px solid var(--line); border-radius:5px;
+  background:rgba(255,255,255,0.75); color:var(--muted);
+  max-width:100%; cursor:pointer;
+}
+.th-select:hover { border-color:var(--orange); color:var(--text); }
+.th-sortable.is-sorted .th-select { border-color:var(--orange); color:var(--text); }
 tr.is-selected { background:var(--orangeglow); }

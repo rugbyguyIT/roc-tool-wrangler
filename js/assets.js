@@ -205,7 +205,14 @@ function assetFormFields(a) {
       </div>
       <div class="form-group">
         <label class="form-label">Location</label>
-        <select class="form-input" name="location_id">${opts(LOCATIONS, a.location_id)}</select>
+        <select class="form-input" name="location_id">${opts(
+          // Repair destinations (EAC/ADC, the maintenance barn) are where
+          // equipment goes when it breaks, not where it lives — an asset
+          // gets there via Send for repair, which already records who has
+          // it. A currently-set one is kept in the list so editing an
+          // older asset does not silently clear its location.
+          LOCATIONS.filter(l => !l.is_repair_destination || l.id === a.location_id),
+          a.location_id)}</select>
       </div>
     </div>
     <div class="form-group">

@@ -73,12 +73,24 @@ async function loadLoanees() {
 
   PAGE_IDS = rows.map(l => l.id);
 
+  // A dropdown per column rather than click-to-sort. Click-to-sort hides
+  // both what is sortable and which way it is going until you have already
+  // clicked; a select states both from the moment the page loads.
+  //
+  // Only one column sorts at a time — the API takes a single key — so
+  // choosing a direction anywhere clears every other column's selection.
   const head = COLUMNS.map(c => {
     if (!c.key) return `<th>${c.label}</th>`;
     const active = LN.sort === c.key;
-    const arrow = active ? (LN.dir === 'asc' ? ' ▲' : ' ▼') : '';
-    return `<th class="th-sort${active ? ' is-sorted' : ''}" onclick="sortBy('${c.key}')"
-      title="Sort by ${c.label}">${c.label}${arrow}</th>`;
+    return `<th class="th-sortable${active ? ' is-sorted' : ''}">
+      <div class="th-label">${c.label}${active ? (LN.dir === 'asc' ? ' ▲' : ' ▼') : ''}</div>
+      <select class="th-select" onchange="setSort('${c.key}', this.value)"
+              title="Sort by ${c.label}">
+        <option value=""${active ? '' : ' selected'}>Sort…</option>
+        <option value="asc"${active && LN.dir === 'asc' ? ' selected' : ''}>Ascending</option>
+        <option value="desc"${active && LN.dir === 'desc' ? ' selected' : ''}>Descending</option>
+      </select>
+    </th>`;
   }).join('');
 
   const allOnPageTicked = rows.length > 0 && rows.every(l => SELECTED.has(l.id));
@@ -163,11 +175,16 @@ function setPageSize(n) {
 }
 
 // ── Sorting ────────────────────────────────────────────────────────────
-// Clicking the sorted column reverses it; clicking a different one starts
-// ascending, because that is what people expect from a spreadsheet.
-function sortBy(key) {
-  if (LN.sort === key) LN.dir = LN.dir === 'asc' ? 'desc' : 'asc';
-  else { LN.sort = key; LN.dir = 'asc'; }
+// The direction is chosen explicitly, so there is no hidden toggle state.
+// Clearing the active column's select falls back to last name ascending
+// rather than leaving the list in an undefined order.
+function setSort(key, dir) {
+  if (!dir) {
+    if (LN.sort !== key) return;          // clearing an inactive column: no-op
+    LN.sort = 'last_name'; LN.dir = 'asc';
+  } else {
+    LN.sort = key; LN.dir = dir === 'desc' ? 'desc' : 'asc';
+  }
   LN.offset = 0;
   LAST_CLICKED = null;    // ranges are meaningless once the order changes
   loadLoanees();
