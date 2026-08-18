@@ -408,8 +408,14 @@ async function deleteLookup(kind, id, name) {
 
 // ══ Settings ═══════════════════════════════════════════════════
 async function loadSettings() {
+  const el = document.getElementById('settings-panel');
   const { data, error } = await api('/settings');
-  if (error) return;
+  if (error) {
+    if (el) el.innerHTML = `<div class="small" style="color:var(--red)">
+      Could not load settings: ${esc(error)}</div>
+      <button class="btn btn-sm" style="margin-top:10px" onclick="loadSettings()">Try again</button>`;
+    return;
+  }
   SETTINGS = data;
   document.getElementById('settings-panel').innerHTML = `
     <div class="form-row">
@@ -565,8 +571,18 @@ async function downloadImportErrors(batchId) {
   document.getElementById('ln-group').addEventListener('change', loadLoanees);
 
   // Highlight the sidenav entry for whichever section is on screen.
-  const items = [...document.querySelectorAll('.admin-sidenav-item')];
-  const sections = items.map(a => document.querySelector(a.getAttribute('href')));
+  //
+  // Only in-page anchors have a section to observe. The Loanees entry now
+  // points at a real page, and querySelector('/pages/loanees.html') throws
+  // a DOMException — which aborted this whole boot function, so NOTHING
+  // below it ran and the console came up blank. That is what "Settings
+  // doesn't do anything" actually was.
+  const items = [...document.querySelectorAll('.admin-sidenav-item')]
+    .filter(a => (a.getAttribute('href') || '').startsWith('#'));
+  const sections = items.map(a => {
+    try { return document.querySelector(a.getAttribute('href')); }
+    catch { return null; }
+  });
   const io = new IntersectionObserver((entries) => {
     entries.forEach(e => {
       if (!e.isIntersecting) return;
@@ -577,13 +593,22 @@ async function downloadImportErrors(batchId) {
   sections.forEach(s => s && io.observe(s));
 
   await loadGroups();
-  await Promise.all([
+  // allSettled, not all: one panel failing (a table a migration has not
+  // created yet, say) must not abort the others and leave half the console
+  // blank with no explanation.
+  const panels = await Promise.allSettled([
     loadDashboard(), loadLoanees(), loadUsers(), loadLookups(), loadSettings(), loadLogs(),
     // Guarded because repairs.js is loaded on three different pages and
     // only admin.html has somewhere to render these.
     typeof loadRepairs === 'function' ? loadRepairs() : null,
     typeof loadRepairShops === 'function' ? loadRepairShops() : null,
   ]);
+  const broke = panels.filter(p => p.status === 'rejected');
+  if (broke.length) {
+    console.error('[admin] panel(s) failed to load', broke.map(p => p.reason));
+    toastMsg(`${broke.length} section${broke.length === 1 ? '' : 's'} failed to load`,
+      'Check the browser console, or reload.', 'error');
+  }
 
   if (location.hash) document.querySelector(location.hash)?.scrollIntoView({ behavior: 'smooth' });
 })();
