@@ -60,7 +60,6 @@
       <div class="admin-layout">
         <div class="admin-sidenav">
           <a class="admin-sidenav-item active" href="#sec-dashboard"><i class="fa-solid fa-gauge"></i> Dashboard</a>
-          <a class="admin-sidenav-item" href="/pages/loanees.html"><i class="fa-solid fa-users"></i> Loanees</a>
           <a class="admin-sidenav-item" href="#sec-groups"><i class="fa-solid fa-user-lock"></i> Groups</a>
           <a class="admin-sidenav-item" href="#sec-users"><i class="fa-solid fa-id-badge"></i> App users</a>
           <a class="admin-sidenav-item" href="#sec-repairs"><i class="fa-solid fa-screwdriver-wrench"></i> Repairs</a>
@@ -75,25 +74,6 @@
             <div class="stat-grid" id="dash-stats"></div>
             <div class="section-title" style="margin-top:22px"><i class="fa-solid fa-clock-rotate-left"></i> Recent activity</div>
             <div id="dash-activity"></div>
-          </div>
-
-          <div class="card admin-section" id="sec-loanees">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-              <div class="section-title" style="margin:0"><i class="fa-solid fa-users"></i> Loanees</div>
-              <div class="pill-row">
-                <button class="btn btn-sm btn-primary" onclick="openRosterSync()"><i class="fa-solid fa-rotate"></i> Sync Roster</button>
-                <button class="btn btn-sm" onclick="openImport('loanees')"><i class="fa-solid fa-file-import"></i> Import CSV / Excel</button>
-                <button class="btn btn-sm btn-primary" onclick="newLoanee()"><i class="fa-solid fa-plus"></i> Add loanee</button>
-              </div>
-            </div>
-            <div class="small muted" style="margin:8px 0 12px">
-              The people who borrow equipment. They don't sign in — they're chosen at the counter.
-            </div>
-            <div class="form-row">
-              <div class="form-group"><input class="form-input" id="ln-q" type="search" placeholder="Search name, email, committee…" /></div>
-              <div class="form-group"><select class="form-input" id="ln-group"><option value="">Any group</option></select></div>
-            </div>
-            <div id="loanees-table"></div>
           </div>
 
           <div class="card admin-section" id="sec-groups">
@@ -175,7 +155,6 @@
      in on demand the first time someone opens an import, so the admin
      console — which people open all day on venue wifi — stays light. -->
 <script src="/js/importer.js"></script>
-<script src="/js/roster-sync.js"></script>
 <script src="/js/admin.js"></script>
 </body>
 </html>

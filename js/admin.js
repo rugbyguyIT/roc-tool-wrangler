@@ -39,44 +39,8 @@ async function loadDashboard() {
     : '<div class="small muted">Nothing has happened yet.</div>';
 }
 
-// ══ Loanees ════════════════════════════════════════════════════
-async function loadLoanees() {
-  const p = new URLSearchParams();
-  const q = document.getElementById('ln-q').value.trim();
-  if (q) p.set('q', q);
-  const g = document.getElementById('ln-group').value;
-  if (g) p.set('group_id', g);
-  p.set('limit', '250');
-
-  const { data, error } = await api(`/loanees?${p}`);
-  const el = document.getElementById('loanees-table');
-  if (error) { el.innerHTML = `<div class="small" style="color:var(--red)">${esc(error)}</div>`; return; }
-  if (!data.rows.length) {
-    el.innerHTML = `<div class="small muted" style="padding:20px;text-align:center">
-      No loanees yet. Add one, or import your roster with the button above.</div>`;
-    return;
-  }
-  el.innerHTML = `<div style="overflow-x:auto"><table class="tbl">
-    <thead><tr><th>Name</th><th>Member #</th><th>Contact</th><th>Title</th><th>Committee</th><th>Groups</th><th>Out</th><th></th></tr></thead>
-    <tbody>${data.rows.map(l => `
-      <tr>
-        <td><b>${esc(l.full_name)}</b>${l.status === 'inactive'
-            ? `<div class="small" style="color:var(--amber)">Inactive — ${esc(l.status_reason || 'deactivated')}</div>` : ''}</td>
-        <td class="small mono">${esc(l.member_number || '—')}</td>
-        <td class="small">${[l.email, l.phone_mobile && fmtPhone(l.phone_mobile)].filter(Boolean).map(esc).join('<br>') || '<span class="muted">—</span>'}</td>
-        <td class="small">${esc(l.title || l.position || '—')}</td>
-        <td class="small">${esc(l.sub_committee || '—')}</td>
-        <td class="small">${(l.group_names || []).map(g => `<span class="class-chip class-exec">${esc(g)}</span>`).join(' ') || '<span class="muted">—</span>'}</td>
-        <td>${l.items_out ? `<span class="badge badge-active">${l.items_out}</span>` : ''}</td>
-        <td style="text-align:right;white-space:nowrap">
-          <button class="btn btn-sm" onclick="editLoanee('${l.id}')" title="Edit"><i class="fa-solid fa-pen"></i></button>
-          <button class="btn btn-sm" onclick="loaneeGroups('${l.id}')" title="Groups"><i class="fa-solid fa-user-lock"></i></button>
-          <button class="btn btn-sm" onclick="loaneeHistory('${l.id}')" title="History"><i class="fa-solid fa-clock-rotate-left"></i></button>
-          <button class="btn btn-sm btn-danger" onclick="deactivateLoanee('${l.id}','${esc(l.full_name)}')" title="Deactivate"><i class="fa-solid fa-user-slash"></i></button>
-        </td>
-      </tr>`).join('')}</tbody></table></div>
-    <div class="small muted" style="margin-top:8px">${data.total} active loanee${data.total === 1 ? '' : 's'}</div>`;
-}
+// Loanees live on their own page (/pages/loanees.html), not here.
+// One list, one place to manage people.
 
 // Loanee form + actions live in js/loanee-form.js, shared with the
 // dedicated Loanees page.
@@ -86,11 +50,15 @@ async function loadGroups() {
   const { data, error } = await api('/groups');
   if (error) return;
   GROUPS = data;
+  // The group filter lived on the loanee list, which has moved to its own
+  // page; guarded so this stays correct if the element ever returns.
   const sel = document.getElementById('ln-group');
-  const keep = sel.value;
-  sel.innerHTML = '<option value="">Any group</option>';
-  GROUPS.forEach(g => sel.add(new Option(g.name, g.id)));
-  sel.value = keep;
+  if (sel) {
+    const keep = sel.value;
+    sel.innerHTML = '<option value="">Any group</option>';
+    GROUPS.forEach(g => sel.add(new Option(g.name, g.id)));
+    sel.value = keep;
+  }
 
   document.getElementById('groups-table').innerHTML = GROUPS.length
     ? `<div style="overflow-x:auto"><table class="tbl">
@@ -159,7 +127,6 @@ async function deleteGroup(id, name) {
   if (res.error) return toastMsg('Could not delete', res.error, 'error');
   toastMsg('Group deleted', '', 'ok');
   loadGroups();
-  loadLoanees();
 }
 
 async function groupMembers(id) {
@@ -564,11 +531,6 @@ async function downloadImportErrors(batchId) {
 // ══ Boot ═══════════════════════════════════════════════════════
 (async function init() {
   if (!me) return;
-  document.getElementById('ln-q').addEventListener('input', () => {
-    clearTimeout(lnDebounce);
-    lnDebounce = setTimeout(loadLoanees, 250);
-  });
-  document.getElementById('ln-group').addEventListener('change', loadLoanees);
 
   // Highlight the sidenav entry for whichever section is on screen.
   //
@@ -597,7 +559,7 @@ async function downloadImportErrors(batchId) {
   // created yet, say) must not abort the others and leave half the console
   // blank with no explanation.
   const panels = await Promise.allSettled([
-    loadDashboard(), loadLoanees(), loadUsers(), loadLookups(), loadSettings(), loadLogs(),
+    loadDashboard(), loadUsers(), loadLookups(), loadSettings(), loadLogs(),
     // Guarded because repairs.js is loaded on three different pages and
     // only admin.html has somewhere to render these.
     typeof loadRepairs === 'function' ? loadRepairs() : null,
