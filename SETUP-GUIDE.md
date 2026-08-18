@@ -268,6 +268,6 @@ attempts are logged with the email tried, the IP and the reason.
 ## Anything periodic
 
 Static Web Apps' managed Functions are **HTTP-only — there is no timer trigger.** If you later want
-overvdue reminders, a nightly digest, or a sweep of abandoned import batches, the pattern is a
+overdue reminders, a nightly digest, or a sweep of abandoned import batches, the pattern is a
 scheduled GitHub Actions workflow that `curl`s a secret-protected endpoint (8 Second Rides does
 exactly this for its notification outbox). Worth knowing before promising anyone automated reminders.
