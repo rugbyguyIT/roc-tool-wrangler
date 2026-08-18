@@ -12,8 +12,17 @@
 const me = requireLogin('staff', 'admin');
 
 const PAGE_SIZES = [25, 50, 100, 250, 500];
+
+// Alphabetical by last name, then first — the API's 'last_name' key sorts
+// on both, so two Smiths come out in first-name order. This is the order
+// on load and the order "Clear sorting" returns to.
+const DEFAULT_SORT = { sort: 'last_name', dir: 'asc' };
+
 let LN = { q: '', groupId: '', status: 'active', limit: 25, offset: 0, total: 0,
-           sort: 'last_name', dir: 'asc' };
+           ...DEFAULT_SORT,
+           // Distinguishes "this is just the default" from "the reader
+           // chose this", which is what decides whether Clear is offered.
+           sorted: false };
 let GROUPS = [];
 
 // Selection survives paging: tick five people, go to page 2, tick five
@@ -144,6 +153,9 @@ function renderPager() {
         ${LN.total ? `Showing <b>${from}–${to}</b> of <b>${LN.total}</b>` : 'Nothing to show'}
         ${pages > 1 ? ` · page ${page} of ${pages}` : ''}
       </div>
+      ${LN.sorted ? `<button class="btn btn-sm" onclick="clearSort()">
+        <i class="fa-solid fa-xmark"></i> Clear sorting</button>
+        <span class="small muted">back to last name, then first</span>` : ''}
       <div style="flex:1"></div>
       <div class="small muted">Per page</div>
       <select class="form-input" style="width:auto;padding:6px 10px" onchange="setPageSize(this.value)">
@@ -181,12 +193,21 @@ function setPageSize(n) {
 function setSort(key, dir) {
   if (!dir) {
     if (LN.sort !== key) return;          // clearing an inactive column: no-op
-    LN.sort = 'last_name'; LN.dir = 'asc';
-  } else {
-    LN.sort = key; LN.dir = dir === 'desc' ? 'desc' : 'asc';
+    return clearSort();
   }
+  LN.sort = key;
+  LN.dir = dir === 'desc' ? 'desc' : 'asc';
+  // Choosing the default column and direction is not really a sort — treat
+  // it as cleared so the Clear button does not linger with nothing to do.
+  LN.sorted = !(key === DEFAULT_SORT.sort && LN.dir === DEFAULT_SORT.dir);
   LN.offset = 0;
   LAST_CLICKED = null;    // ranges are meaningless once the order changes
+  loadLoanees();
+}
+
+function clearSort() {
+  Object.assign(LN, DEFAULT_SORT, { sorted: false, offset: 0 });
+  LAST_CLICKED = null;
   loadLoanees();
 }
 
