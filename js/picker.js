@@ -38,19 +38,29 @@ function attachPicker(input, opts) {
   wrap.appendChild(menu);
   input.setAttribute('autocomplete', 'off');
 
-  function close() { menu.style.display = 'none'; active = -1; }
+  // The card this picker lives in has backdrop-filter, which makes it a
+  // stacking context — so the menu's z-index cannot lift it above the NEXT
+  // card in the DOM. Raise the whole card while the menu is open instead,
+  // and put it back afterwards so hover/shadow layering stays normal.
+  const ownerCard = input.closest('.card');
+  function setOpen(on) {
+    menu.style.display = on ? 'block' : 'none';
+    if (ownerCard) ownerCard.classList.toggle('pk-open', on);
+  }
+
+  function close() { setOpen(false); active = -1; }
 
   function render() {
     if (!items.length) {
       menu.innerHTML = `<div class="small muted" style="padding:12px 10px">No matches.</div>`;
-      menu.style.display = 'block';
+      setOpen(true);
       return;
     }
     menu.innerHTML = items.map((it, i) => rowHtml(it, i)).join('');
     [...menu.querySelectorAll('[data-i]')].forEach(el => {
       el.addEventListener('mousedown', (e) => { e.preventDefault(); choose(parseInt(el.dataset.i, 10)); });
     });
-    menu.style.display = 'block';
+    setOpen(true);
   }
 
   function rowHtml(it, i) {
