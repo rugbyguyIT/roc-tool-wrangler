@@ -85,9 +85,10 @@ app.http('assetsList', {
 // work on day one even though camera scanning is out of scope for rev 1.
 // `for_loanee` annotates every row with eligibility so ineligible items
 // render disabled with a reason BEFORE anyone tries to hand them over.
-app.http('assetsLookup', {
-  methods: ['GET'], authLevel: 'anonymous', route: 'assets/lookup',
-  handler: async (request) => {
+// See the note in loans.js: 'assets/lookup' and 'assets/{id}' both match
+// GET /api/assets/lookup. Both registrations call this one function.
+async function assetLookupHandler(request) {
+  {
     const { error, status } = await requireRole(request, 'staff', 'admin');
     if (error) return err(error, status);
     const p = qs(request);
@@ -130,15 +131,25 @@ app.http('assetsLookup', {
       return { ...a, ok: !blocked_reason, blocked_reason };
     });
     return json({ exact: annotated.find(x => x.is_exact) || null, matches: annotated });
-  },
+  }
+}
+
+app.http('assetsLookup', {
+  methods: ['GET'], authLevel: 'anonymous', route: 'assets/lookup',
+  handler: assetLookupHandler,
 });
 
 app.http('assetsGet', {
   methods: ['GET'], authLevel: 'anonymous', route: 'assets/{id}',
   handler: async (request) => {
+    // This template also matches the literal route above.
+    if (request.params.id === 'lookup') return assetLookupHandler(request);
+
     const { error, status } = await requireAuth(request);
     if (error) return err(error, status);
     const id = request.params.id;
+    // Not a UUID means not an asset id — 404 instead of a Postgres 22P02.
+    if (!uuidOrNull(id)) return err('Asset not found', 404);
     const r = await query(`${SELECT_LIST} WHERE a.id = $1`, [id]);
     if (!r.rows.length) return err('Asset not found', 404);
     const photos = await query(
