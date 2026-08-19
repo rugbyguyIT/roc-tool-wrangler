@@ -135,6 +135,15 @@ async function refresh(manual) {
     // Keep whatever is on screen — a leader out of coverage is better
     // served by slightly stale numbers than by an empty page.
     document.body.classList.add('is-offline');
+    // Say which of the two it actually is. Reporting a server error as
+    // "no connection" sends people to check their wifi when the fault is
+    // ours, and they have no way to tell the difference from the banner.
+    const note = document.getElementById('board-offline-text');
+    if (note) {
+      note.textContent = navigator.onLine
+        ? `Couldn't reach the server (${error}) — showing the last data loaded.`
+        : 'No connection — showing the last data loaded.';
+    }
     if (manual) toastMsg('Could not refresh', error, 'error');
     return;
   }

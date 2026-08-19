@@ -7,7 +7,7 @@ let SETTINGS = { default_loan_hours: 12 };
 let checkinItems = [];   // open loan items currently listed on the check-in side
 let checkinContext = ''; // a heading describing where that list came from
 
-// ── View switching ─────────────────────────────────────────────
+// ── View switching ────────────────────────────────────────
 function setView(v) {
   document.getElementById('view-out').classList.toggle('active', v === 'out');
   document.getElementById('view-in').classList.toggle('active', v === 'in');
@@ -19,7 +19,7 @@ function setView(v) {
   else document.getElementById('in-asset-input')?.focus();
 }
 
-// ── Due date ───────────────────────────────────────────────────
+// ── Due date ────────────────────────────────────────────
 // Pre-filled to now + the configured default (12 hours). Staff can
 // change it or clear it; a cleared field means an indefinite loan and is
 // sent to the server as an explicit null, not as "unset".
@@ -34,7 +34,7 @@ function setDueTonight() {
   document.getElementById('due-input').value = toLocalInput(d);
 }
 
-// ── Cart rendering ─────────────────────────────────────────────
+// ── Cart rendering ────────────────────────────────────────
 function renderLoanee() {
   const picked = document.getElementById('loanee-picked');
   const search = document.getElementById('loanee-search');
@@ -132,7 +132,7 @@ function removeItem(id) {
   renderCart();
 }
 
-// ── Check out ──────────────────────────────────────────────────
+// ── Check out ───────────────────────────────────────────
 async function doCheckout() {
   if (!Cart.loanee) return toastMsg('Choose a person first', 'Search for who is taking the equipment.', 'error');
   if (!Cart.items.length) return toastMsg('The cart is empty', 'Add at least one item.', 'error');
@@ -147,8 +147,9 @@ async function doCheckout() {
     due_at: dueRaw ? fromLocalInput(dueRaw) : null,  // explicit null = indefinite
     notes: document.getElementById('notes-input').value.trim() || null,
   };
-  const cond = document.getElementById('cond-input').value;
-  if (cond) body.items = Cart.ids().map(id => ({ asset_id: id, out_condition: cond }));
+  // No condition-going-out field at the counter. The column and the API
+  // still accept one, so a later screen can record it without a migration;
+  // it is simply not asked for during a handoff.
 
   const { data, error, detail } = await api('/checkout', 'POST', body);
   if (error) {
@@ -177,7 +178,7 @@ async function doCheckout() {
   document.getElementById('loanee-input').focus();
 }
 
-// ── Check in ───────────────────────────────────────────────────
+// ── Check in ────────────────────────────────────────────
 function renderCheckin() {
   const panel = document.getElementById('checkin-panel');
   if (!checkinItems.length) {
@@ -285,13 +286,14 @@ async function doCheckin() {
   renderCheckin();
 }
 
-// ── Boot ───────────────────────────────────────────────────────
+// ── Boot ────────────────────────────────────────────────
 (async function init() {
   if (!me) return;
   document.getElementById('operator-name').textContent = me.full_name || me.email;
 
-  const cond = document.getElementById('cond-input');
-  CONDITIONS.forEach(c => cond.add(new Option(c.label, c.value)));
+  // No condition picker on the way out any more. CONDITIONS itself stays
+  // in assets-ui.js — IN_CONDITIONS is built from it, and check-IN is
+  // where a damaged item actually needs recording.
 
   const { data: s } = await api('/settings');
   if (s) SETTINGS = s;
