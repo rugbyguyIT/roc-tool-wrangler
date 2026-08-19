@@ -7,6 +7,12 @@
   },
   "routes": [
     {
+      "_comment": "Loanees became Committee Members in 0.14.0 and the page moved with it. Anyone who bookmarked the old address, or put it on a phone home screen, still lands in the right place. Permanent, because the old path is never coming back.",
+      "route": "/pages/loanees.html",
+      "redirect": "/pages/members.html",
+      "statusCode": 301
+    },
+    {
       "route": "/sw.js",
       "headers": { "Cache-Control": "no-cache, no-store, must-revalidate" }
     },
