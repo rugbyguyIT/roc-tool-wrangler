@@ -104,9 +104,11 @@ app.http('loaneesList', {
 // Type-ahead for the check-out counter. Returns `exact` separately from
 // `matches` so the picker can auto-select on an exact hit + Enter —
 // which is exactly what a keyboard-wedge barcode scanner produces.
-app.http('loaneesLookup', {
-  methods: ['GET'], authLevel: 'anonymous', route: 'loanees/lookup',
-  handler: async (request) => {
+// See the note in loans.js: 'loanees/lookup' and 'loanees/{id}' both match
+// GET /api/loanees/lookup, and the host does not reliably prefer the
+// literal. Both registrations call the same function so it cannot matter.
+async function loaneeLookupHandler(request) {
+  {
     const { error, status } = await requireAuth(request);
     if (error) return err(error, status);
     const q = (qs(request).get('q') || '').trim();
@@ -145,7 +147,12 @@ app.http('loaneesLookup', {
 
     const exact = r.rows.find(x => x.is_exact) || null;
     return json({ exact, matches: r.rows });
-  },
+  }
+}
+
+app.http('loaneesLookup', {
+  methods: ['GET'], authLevel: 'anonymous', route: 'loanees/lookup',
+  handler: loaneeLookupHandler,
 });
 
 // The tick list behind the Committee column filter. Registered above
@@ -154,9 +161,8 @@ app.http('loaneesLookup', {
 // Counts are for the CURRENT status filter only, not the current committee
 // selection — a filter panel whose own options disappear as you tick them
 // is impossible to widen again without clearing it first.
-app.http('loaneesCommittees', {
-  methods: ['GET'], authLevel: 'anonymous', route: 'loanees/committees',
-  handler: async (request) => {
+async function loaneeCommitteesHandler(request) {
+  {
     const { error, status } = await requireAuth(request);
     if (error) return err(error, status);
     const st = ['active', 'inactive'].includes(qs(request).get('status'))
@@ -172,15 +178,27 @@ app.http('loaneesCommittees', {
        ORDER BY (coalesce(nullif(btrim(sub_committee), ''), '') = '') ASC,
                 coalesce(nullif(btrim(sub_committee), ''), '')`, [st]);
     return json({ rows: r.rows });
-  },
+  }
+}
+
+app.http('loaneesCommittees', {
+  methods: ['GET'], authLevel: 'anonymous', route: 'loanees/committees',
+  handler: loaneeCommitteesHandler,
 });
 
 app.http('loaneesGet', {
   methods: ['GET'], authLevel: 'anonymous', route: 'loanees/{id}',
   handler: async (request) => {
+    // This template also matches the two literal routes above.
+    if (request.params.id === 'lookup') return loaneeLookupHandler(request);
+    if (request.params.id === 'committees') return loaneeCommitteesHandler(request);
+
     const { error, status } = await requireAuth(request);
     if (error) return err(error, status);
     const id = request.params.id;
+    // Not a UUID means not a loanee id. 404, rather than letting Postgres
+    // raise 22P02 and turn it into a 500.
+    if (!uuidOrNull(id)) return err('Loanee not found', 404);
     const r = await query(`SELECT * FROM public.loanees WHERE id = $1`, [id]);
     if (!r.rows.length) return err('Loanee not found', 404);
     const groups = await query(
