@@ -1,4 +1,4 @@
-// ═══════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
 // HLSR Asset Tracker — CSV / XLSX import
 //   POST /api/imports/{kind}/preview   admin   dry run, writes nothing real
 //   POST /api/imports/{kind}/commit    admin   applies a previewed batch
@@ -17,7 +17,7 @@
 // Preview writes to import_rows only. Commit re-reads those rows from the
 // database rather than accepting a re-sent client payload, which is what
 // makes "what you approved is what gets written" actually true.
-// ═══════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
 const { app } = require('@azure/functions');
 const { query, withTransaction } = require('../db');
 const {
@@ -30,7 +30,7 @@ const MAX_CHUNK = 500;   // rows per preview request — keeps each call well
                          // inside Static Web Apps' body-size and duration caps
 const KINDS = { loanees: 'loanees', assets: 'assets', 'group-members': 'group_members' };
 
-// ── Header aliases ─────────────────────────────────────────────────────
+// ── Header aliases ──────────────────────────────────────────
 // Headers are normalized (trim → lowercase → collapse separators to one
 // space) and matched here. Anything unrecognized is ignored and reported.
 const ALIASES = {
@@ -55,6 +55,10 @@ const ALIASES = {
     status:      ['status', 'state', 'status label'],
     groups:      ['groups', 'restricted to', 'restriction', 'group'],
     value:       ['value', 'valuation', 'cost', 'purchase price'],
+    color:       ['color', 'colour', 'paint'],
+    // 'make' and 'brand' are what a spreadsheet of golf carts actually
+    // calls this column; 'mfg' is what the person typing it says.
+    manufacturer: ['manufacturer', 'mfg', 'mfr', 'make', 'brand', 'vendor'],
   },
 };
 ALIASES.group_members = ALIASES.loanees;
@@ -93,7 +97,7 @@ function cell(row, map, field) {
   return '';
 }
 
-// ═══ PREVIEW ═══════════════════════════════════════════════════════════
+// ═══ PREVIEW ════════════════════════════════════════════════════════
 app.http('importPreview', {
   methods: ['POST'], authLevel: 'anonymous', route: 'imports/{kind}/preview',
   handler: async (request) => {
@@ -184,6 +188,8 @@ app.http('importPreview', {
           description: cell(raw, map, 'description') || null,
           serial: cell(raw, map, 'serial') || null,
           notes: cell(raw, map, 'notes') || null,
+          color: cell(raw, map, 'color') || null,
+          manufacturer: cell(raw, map, 'manufacturer') || null,
           status: importStatus,
           category_name: catName || null, location_name: locName || null,
           group_names: groupNames,
@@ -303,7 +309,7 @@ app.http('importPreview', {
   },
 });
 
-// ═══ COMMIT ════════════════════════════════════════════════════════════
+// ═══ COMMIT ═════════════════════════════════════════════════════════
 app.http('importCommit', {
   methods: ['POST'], authLevel: 'anonymous', route: 'imports/{kind}/commit',
   handler: async (request) => {
@@ -372,19 +378,25 @@ app.http('importCommit', {
 
             if (row.verdict === 'update' && assetId) {
               await client.query(
+                // COALESCE on colour and manufacturer: a re-import from a
+                // narrower export must not blank out details somebody typed
+                // in by hand. An import can fill a gap; it cannot erase.
                 `UPDATE public.assets SET title=$2, description=$3, serial=$4, notes=$5,
-                        category_id=$6, location_id=$7, value_cents=$8, updated_at=now()
+                        category_id=$6, location_id=$7, value_cents=$8,
+                        color=COALESCE($9, color), manufacturer=COALESCE($10, manufacturer),
+                        updated_at=now()
                  WHERE id = $1`,
-                [assetId, n.title, n.description, n.serial, n.notes, categoryId, locationId, n.value_cents]);
+                [assetId, n.title, n.description, n.serial, n.notes, categoryId, locationId,
+                 n.value_cents, n.color, n.manufacturer]);
               updated++;
             } else {
               const r = await client.query(
                 `INSERT INTO public.assets
                    (asset_tag, title, description, serial, notes, status, category_id, location_id,
-                    value_cents, created_by)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+                    value_cents, color, manufacturer, created_by)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
                 [n.asset_tag, n.title, n.description, n.serial, n.notes, n.status || 'available',
-                 categoryId, locationId, n.value_cents, user.sub]);
+                 categoryId, locationId, n.value_cents, n.color, n.manufacturer, user.sub]);
               assetId = r.rows[0].id;
               created++;
               await core.writeEvent(client, {

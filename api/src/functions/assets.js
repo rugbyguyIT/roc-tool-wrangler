@@ -21,6 +21,7 @@ const core = require('../assets-core');
 
 const SELECT_LIST = `
   SELECT a.id, a.asset_tag, a.title, a.description, a.serial, a.status,
+         a.color, a.manufacturer,
          a.primary_photo_url, a.notes, a.value_cents, a.purchase_date,
          a.category_id, c.name AS category, c.icon AS category_icon,
          -- Where this kind of thing goes when it breaks, so the
@@ -56,7 +57,11 @@ app.http('assetsList', {
         AND ($4::uuid IS NULL OR EXISTS (SELECT 1 FROM public.asset_groups ag
                                          WHERE ag.asset_id = a.id AND ag.group_id = $4))
         AND ($5::text IS NULL OR a.asset_tag ILIKE '%'||$5||'%' OR a.title ILIKE '%'||$5||'%'
-             OR a.serial ILIKE '%'||$5||'%' OR a.description ILIKE '%'||$5||'%')
+             OR a.serial ILIKE '%'||$5||'%' OR a.description ILIKE '%'||$5||'%'
+             -- Searchable because they are what people actually remember:
+             -- "the white one", "the Club Car".
+             OR coalesce(a.manufacturer,'') ILIKE '%'||$5||'%'
+             OR coalesce(a.color,'')        ILIKE '%'||$5||'%')
         AND ($6::boolean IS NULL OR ($6 = TRUE) = EXISTS
               (SELECT 1 FROM public.asset_groups ag WHERE ag.asset_id = a.id))`;
     const restrictedOnly = p.get('restricted') === '1' ? true : (p.get('restricted') === '0' ? false : null);
@@ -98,6 +103,7 @@ async function assetLookupHandler(request) {
 
     const r = await query(
       `SELECT a.id, a.asset_tag, a.title, a.serial, a.status, a.primary_photo_url,
+              a.color, a.manufacturer,
               c.name AS category, c.icon AS category_icon,
               (lower(a.asset_tag) = lower($1) OR lower(coalesce(a.serial,'')) = lower($1)) AS is_exact,
               CASE WHEN $2::uuid IS NULL THEN TRUE ELSE public.asset_eligible(a.id, $2) END AS eligible,
@@ -110,7 +116,11 @@ async function assetLookupHandler(request) {
             OR lower(coalesce(a.serial,'')) = lower($1)
             OR a.asset_tag ILIKE '%'||$1||'%'
             OR a.title ILIKE '%'||$1||'%'
-            OR coalesce(a.serial,'') ILIKE '%'||$1||'%' )
+            OR coalesce(a.serial,'') ILIKE '%'||$1||'%'
+            -- At the counter people search for what they can see: the
+            -- colour on the side of it, or who made it.
+            OR coalesce(a.manufacturer,'') ILIKE '%'||$1||'%'
+            OR coalesce(a.color,'')        ILIKE '%'||$1||'%' )
        -- No similarity() here either: see the note in loanees.js. pg_trgm
        -- going missing must not take the asset picker down with it.
        ORDER BY is_exact DESC,
@@ -197,11 +207,17 @@ app.http('assetsCreate', {
         const r = await client.query(
           `INSERT INTO public.assets
              (asset_tag, title, description, category_id, location_id, serial, notes,
-              purchase_date, value_cents, created_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+              color, manufacturer, purchase_date, value_cents, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
           [String(asset_tag).trim(), String(title).trim(), body.description || null,
            uuidOrNull(body.category_id), uuidOrNull(body.location_id), body.serial || null,
-           body.notes || null, body.purchase_date || null, body.value_cents ?? null, user.sub]);
+           body.notes || null,
+           // Trimmed to NULL rather than kept as '': a blank means nobody
+           // recorded it, and an empty string would read as a recorded
+           // answer of "nothing" in every report that counts them.
+           String(body.color || '').trim() || null,
+           String(body.manufacturer || '').trim() || null,
+           body.purchase_date || null, body.value_cents ?? null, user.sub]);
         const a = r.rows[0];
         for (const gid of (body.group_ids || [])) {
           await client.query(
@@ -251,6 +267,11 @@ app.http('assetsUpdate', {
     if (body.asset_tag !== undefined) push('asset_tag', String(body.asset_tag).trim());
     if (body.title !== undefined) push('title', String(body.title).trim());
     for (const f of ['description', 'serial', 'notes']) if (body[f] !== undefined) push(f, body[f] || null);
+    // Same trim-to-NULL rule as create, so a field cleared in the form ends
+    // up indistinguishable from one that was never filled in.
+    for (const f of ['color', 'manufacturer']) {
+      if (body[f] !== undefined) push(f, String(body[f] || '').trim() || null);
+    }
     if (body.category_id !== undefined) push('category_id', uuidOrNull(body.category_id));
     if (body.location_id !== undefined) push('location_id', uuidOrNull(body.location_id));
     if (body.purchase_date !== undefined) push('purchase_date', body.purchase_date || null);
