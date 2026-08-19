@@ -11,7 +11,7 @@ let LOCATIONS = [];
 let SETTINGS = {};
 let lnDebounce = null;
 
-// ══ Dashboard ════════════════════════════════════════════════
+// ══ Dashboard ══════════════════════════════════════════
 async function loadDashboard() {
   const [open, assets, loanees, groups] = await Promise.all([
     api('/loans/open'), api('/assets?limit=1'), api('/loanees?limit=1'), api('/groups'),
@@ -22,7 +22,7 @@ async function loadDashboard() {
     { n: s.out_now ?? '—', label: 'Out now', icon: 'fa-person-walking-luggage', color: 'var(--orange)' },
     { n: s.overdue ?? '—', label: 'Overdue', icon: 'fa-triangle-exclamation', color: 'var(--red)' },
     { n: s.maintenance ?? '—', label: 'Maintenance', icon: 'fa-screwdriver-wrench', color: 'var(--amber)' },
-    { n: loanees.data?.total ?? '—', label: 'Loanees', icon: 'fa-users', color: 'var(--blue)' },
+    { n: loanees.data?.total ?? '—', label: 'Committee Members', icon: 'fa-users', color: 'var(--blue)' },
     { n: groups.data?.length ?? '—', label: 'Groups', icon: 'fa-user-lock', color: 'var(--green)' },
   ];
   document.getElementById('dash-stats').innerHTML = tiles.map(t => `
@@ -39,18 +39,18 @@ async function loadDashboard() {
     : '<div class="small muted">Nothing has happened yet.</div>';
 }
 
-// Loanees live on their own page (/pages/loanees.html), not here.
+// Committee members live on their own page (/pages/members.html), not here.
 // One list, one place to manage people.
 
-// Loanee form + actions live in js/loanee-form.js, shared with the
-// dedicated Loanees page.
+// The member form + actions live in js/loanee-form.js, shared with the
+// dedicated Committee Members page.
 
-// ══ Groups ═══════════════════════════════════════════════════
+// ══ Groups ═════════════════════════════════════════════
 async function loadGroups() {
   const { data, error } = await api('/groups');
   if (error) return;
   GROUPS = data;
-  // The group filter lived on the loanee list, which has moved to its own
+  // The group filter lived on the member list, which has moved to its own
   // page; guarded so this stays correct if the element ever returns.
   const sel = document.getElementById('ln-group');
   if (sel) {
@@ -167,7 +167,7 @@ async function removeMember(groupId, loaneeId) {
   groupMembers(groupId);
 }
 
-// ══ App users ════════════════════════════════════════════════
+// ══ App users ══════════════════════════════════════════
 // 'staff' is the stored value; 'Base' is what everyone at the grounds
 // calls it. Renaming the stored value would mean migrating the CHECK
 // constraint, every JWT in circulation and every route guard for a
@@ -193,9 +193,9 @@ let USER_PAGE = { limit: 10, offset: 0, total: 0, ...USER_DEFAULT_SORT,
 let USER_ROLES = [];
 let ROLE_COUNTS = [];
 
-// Same shape as the Loanees table: a sort dropdown per column, and a funnel
-// on the one column worth filtering. Click-to-sort hides both what is
-// sortable and which way it is going until you have already clicked.
+// Same shape as the Committee Members table: a sort dropdown per column,
+// and a funnel on the one column worth filtering. Click-to-sort hides both
+// what is sortable and which way it is going until you have already clicked.
 const USER_COLUMNS = [
   { key: 'first_name',    label: 'First' },
   { key: 'last_name',     label: 'Last' },
@@ -217,7 +217,7 @@ function setUserSearch(v) {
 
 function setUserPageSize(n) {
   // Keep the reader near where they were rather than throwing them back to
-  // the top — same rule as the Loanees pager.
+  // the top — same rule as the Committee Members pager.
   const firstVisible = USER_PAGE.offset;
   USER_PAGE.limit = parseInt(n, 10) || 10;
   USER_PAGE.offset = Math.floor(firstVisible / USER_PAGE.limit) * USER_PAGE.limit;
@@ -595,7 +595,7 @@ async function changeMyPassword() {
   setTimeout(signOut, 1500);
 }
 
-// ══ Lookups ══════════════════════════════════════════════════
+// ══ Lookups ════════════════════════════════════════════
 function lookupPanel(kind, title, icon, rows) {
   return `<div class="card card-sm">
     <div style="display:flex;justify-content:space-between;align-items:center">
@@ -664,7 +664,7 @@ async function deleteLookup(kind, id, name) {
   loadLookups();
 }
 
-// ══ Settings ════════════════════════════════════════════════
+// ══ Settings ══════════════════════════════════════════
 async function loadSettings() {
   const el = document.getElementById('settings-panel');
   const { data, error } = await api('/settings');
@@ -740,7 +740,7 @@ async function saveSettings() {
   loadSettings();
 }
 
-// ══ Logs ═════════════════════════════════════════════════════
+// ══ Logs ══════════════════════════════════════════════
 let logTab = 'audit';
 function setLogTab(t) {
   logTab = t;
@@ -819,14 +819,14 @@ async function downloadImportErrors(batchId) {
   ]);
 }
 
-// ══ Boot ═════════════════════════════════════════════════════
+// ══ Boot ═════════════════════════════════════════════
 (async function init() {
   if (!me) return;
 
   // Highlight the sidenav entry for whichever section is on screen.
   //
-  // Only in-page anchors have a section to observe. The Loanees entry now
-  // points at a real page, and querySelector('/pages/loanees.html') throws
+  // Only in-page anchors have a section to observe. The Members entry now
+  // points at a real page, and querySelector('/pages/members.html') throws
   // a DOMException — which aborted this whole boot function, so NOTHING
   // below it ran and the console came up blank. That is what "Settings
   // doesn't do anything" actually was.
