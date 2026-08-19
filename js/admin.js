@@ -176,9 +176,34 @@ const ROLE_LABEL = { admin: 'Administrator', staff: 'Base', leader: 'Leadership'
 
 let USER_Q = '';
 let USER_Q_TIMER = null;
-// Same shape as the Loanees page: 25 to start, and the reader chooses.
-const USER_PAGE_SIZES = [25, 50, 100, 500];
-let USER_PAGE = { limit: 25, offset: 0, total: 0 };
+// 10 to start. This list sits under the dashboard on a page that already
+// scrolls, so a short first page keeps the console readable; the reader
+// picks a longer one when they actually want to scan the whole roster.
+const USER_PAGE_SIZES = [10, 25, 50, 100, 200, 250, 500];
+// Role rank, then surname — the order the list has always opened in, kept
+// as the default so "Clear sorting" has somewhere honest to return to.
+const USER_DEFAULT_SORT = { sort: 'role', dir: 'asc' };
+let USER_PAGE = { limit: 10, offset: 0, total: 0, ...USER_DEFAULT_SORT,
+                  // Distinguishes "this is just the default" from "the
+                  // reader chose this", which is what decides whether the
+                  // Clear button has anything to do.
+                  sorted: false };
+// Ticked roles. Empty means every role, which is deliberately NOT the same
+// as all three ticked: a role added later should be included, not dropped.
+let USER_ROLES = [];
+let ROLE_COUNTS = [];
+
+// Same shape as the Loanees table: a sort dropdown per column, and a funnel
+// on the one column worth filtering. Click-to-sort hides both what is
+// sortable and which way it is going until you have already clicked.
+const USER_COLUMNS = [
+  { key: 'first_name',    label: 'First' },
+  { key: 'last_name',     label: 'Last' },
+  { key: 'email',         label: 'Email' },
+  { key: 'member_number', label: 'Member #' },
+  { key: 'role',          label: 'Role', filter: true },
+  { key: 'last_login_at', label: 'Last signed in' },
+];
 
 // Typing filters server-side rather than in the browser: with the roster
 // loaded this list is hundreds of accounts, and the search has to reach
@@ -194,7 +219,7 @@ function setUserPageSize(n) {
   // Keep the reader near where they were rather than throwing them back to
   // the top — same rule as the Loanees pager.
   const firstVisible = USER_PAGE.offset;
-  USER_PAGE.limit = parseInt(n, 10) || 25;
+  USER_PAGE.limit = parseInt(n, 10) || 10;
   USER_PAGE.offset = Math.floor(firstVisible / USER_PAGE.limit) * USER_PAGE.limit;
   loadUsers();
 }
@@ -206,16 +231,56 @@ function userPageBy(dir) {
   loadUsers();
 }
 
+// The direction is chosen explicitly, so there is no hidden toggle state.
+// Clearing the active column's select falls back to the default rather than
+// leaving the list in an undefined order.
+function setUserSort(key, dir) {
+  if (!dir) {
+    if (USER_PAGE.sort !== key) return;   // clearing an inactive column: no-op
+    return clearUserSort();
+  }
+  USER_PAGE.sort = key;
+  USER_PAGE.dir = dir === 'desc' ? 'desc' : 'asc';
+  // Choosing the default column and direction is not really a sort — treat
+  // it as cleared so the Clear button does not linger with nothing to do.
+  USER_PAGE.sorted = !(key === USER_DEFAULT_SORT.sort && USER_PAGE.dir === USER_DEFAULT_SORT.dir);
+  USER_PAGE.offset = 0;
+  loadUsers();
+}
+
+function clearUserSort() {
+  Object.assign(USER_PAGE, USER_DEFAULT_SORT, { sorted: false, offset: 0 });
+  loadUsers();
+}
+
+// The counts come back with the list, so the panel opens without a second
+// round trip and can never disagree with what is on screen.
+function openRoleFilter(ev) {
+  openColumnFilter(ev, {
+    items: ROLE_COUNTS.map(r => ({ value: r.role, label: ROLE_LABEL[r.role] || r.role, n: r.n })),
+    selected: USER_ROLES,
+    allLabel: '(All roles)',
+    placeholder: 'Search roles…',
+    onApply: (values) => { USER_ROLES = values; USER_PAGE.offset = 0; loadUsers(); },
+  });
+}
+
 async function loadUsers() {
   const p = new URLSearchParams({
     limit: String(USER_PAGE.limit), offset: String(USER_PAGE.offset),
+    sort: USER_PAGE.sort, dir: USER_PAGE.dir,
   });
   if (USER_Q.trim()) p.set('q', USER_Q.trim());
+  // Repeated key, one per ticked role. None ticked = no filter at all.
+  USER_ROLES.forEach(r => p.append('role', r));
+
   const { data: payload, error } = await api(`/users?${p.toString()}`);
   if (error) return;
-  // The endpoint returns { rows, total } now that the list is paged.
+  // The endpoint returns { rows, total, role_counts } now that the list is
+  // paged, sorted and filtered on the server.
   const data = payload.rows || [];
   USER_PAGE.total = payload.total ?? data.length;
+  ROLE_COUNTS = payload.role_counts || ROLE_COUNTS;
 
   // Rebuilt on every keystroke, so the input is restored and refocused
   // rather than being torn out from under the cursor.
@@ -227,18 +292,35 @@ async function loadUsers() {
 
   if (!data.length) {
     document.getElementById('users-table').innerHTML = search +
-      `<div class="small muted" style="padding:16px 2px">${USER_Q.trim()
-        ? `Nobody matches “${esc(USER_Q.trim())}”.`
-        : 'No app users yet.'}</div>`;
+      `<div class="small muted" style="padding:16px 2px">${USER_Q.trim() || USER_ROLES.length
+        ? 'Nobody matches that. Clear the search or the role filter to see everyone.'
+        : 'No app users yet.'}</div>` + userPager();
     return restoreUserSearchFocus();
   }
 
+  const head = USER_COLUMNS.map(c => {
+    const active = USER_PAGE.sort === c.key;
+    return `<th class="th-sortable${active ? ' is-sorted' : ''}">
+      <div class="th-label">${c.label}${active ? (USER_PAGE.dir === 'asc' ? ' ▲' : ' ▼') : ''}${
+        c.filter ? columnFilterButton('openRoleFilter(event)', USER_ROLES.length, 'Filter by role') : ''}</div>
+      <select class="th-select" onchange="setUserSort('${c.key}', this.value)"
+              title="Sort by ${c.label}">
+        <option value=""${active ? '' : ' selected'}>Sort…</option>
+        <option value="asc"${active && USER_PAGE.dir === 'asc' ? ' selected' : ''}>Ascending</option>
+        <option value="desc"${active && USER_PAGE.dir === 'desc' ? ' selected' : ''}>Descending</option>
+      </select>
+    </th>`;
+  }).join('');
+
   document.getElementById('users-table').innerHTML = search + `<div style="overflow-x:auto"><table class="tbl">
-    <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Last signed in</th><th></th></tr></thead>
+    <thead><tr>${head}<th></th></tr></thead>
     <tbody>${data.map(u => `
       <tr${u.status === 'inactive' ? ' style="opacity:.55"' : ''}>
-        <td><b>${esc(u.full_name)}</b>${u.status === 'inactive' ? ' <span class="badge badge-neutral">Disabled</span>' : ''}</td>
+        <td><b>${esc(u.first_name || '')}</b>${u.status === 'inactive'
+          ? '<div class="small" style="color:var(--amber)">Disabled</div>' : ''}</td>
+        <td><b>${esc(u.last_name || '')}</b></td>
         <td class="small">${esc(u.email)}</td>
+        <td class="small mono">${esc(u.member_number || '—')}</td>
         <td><span class="class-chip ${u.role === 'admin' ? 'class-vip' : u.role === 'staff' ? 'class-exec' : 'class-performer'}">${ROLE_LABEL[u.role]}</span></td>
         <td class="small">${u.last_login_at ? esc(fmtWhen(u.last_login_at)) : '<span class="muted">Never</span>'}</td>
         <td style="text-align:right;white-space:nowrap">
@@ -264,6 +346,14 @@ function userPager() {
         ${total ? `Showing <b>${from}–${to}</b> of <b>${total}</b>` : 'Nothing to show'}
         ${pages > 1 ? ` · page ${page} of ${pages}` : ''}
       </div>
+      <!-- Always present, disabled when there is nothing to clear. Showing it
+           only once a non-default sort was chosen meant the control you needed
+           was the one control that wasn't there. -->
+      <button class="btn btn-sm" ${USER_PAGE.sorted ? '' : 'disabled'} onclick="clearUserSort()"
+        title="Back to role, then surname">
+        <i class="fa-solid fa-xmark"></i> Clear sorting</button>
+      ${USER_ROLES.length ? `<button class="btn btn-sm" onclick="USER_ROLES=[];USER_PAGE.offset=0;loadUsers()">
+        <i class="fa-solid fa-filter-circle-xmark"></i> Clear role filter</button>` : ''}
       <div style="flex:1"></div>
       <div class="small muted">Per page</div>
       <select class="form-input" style="width:auto;padding:6px 10px" onchange="setUserPageSize(this.value)">
