@@ -1,4 +1,4 @@
-// ═══════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
 // HLSR Asset Tracker — the single mutation path.
 //
 // Adapted from 8 Second Rides' rides-core.js. EVERY change to an asset's
@@ -15,10 +15,10 @@
 //
 // If you find yourself writing `UPDATE public.assets SET status` anywhere
 // else in this codebase, stop — it belongs here.
-// ═══════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
 const { withTransaction, query } = require('./db');
 
-// ── The transition table ───────────────────────────────────────────────
+// ── The transition table ────────────────────────────────────────
 // `from` is not documentation, it is the guard. There is no separate
 // "is it in maintenance?" check anywhere in the app: check_out simply
 // cannot start from 'maintenance' or 'retired'.
@@ -60,7 +60,7 @@ const STATUS_LABEL = {
   maintenance: 'in maintenance', retired: 'retired',
 };
 
-// ── Small helpers ──────────────────────────────────────────────────────
+// ── Small helpers ─────────────────────────────────────────────
 function assetLabel(a) {
   return a ? `${a.asset_tag} — ${a.title}` : 'That asset';
 }
@@ -116,7 +116,7 @@ async function guardedStatusUpdate(client, assetId, t, action, asset) {
   return upd.rows[0];
 }
 
-// ═══ 1. Single-asset lifecycle ═════════════════════════════════════════
+// ═══ 1. Single-asset lifecycle ═════════════════════════════════════
 async function performAction(assetId, action, actor, opts = {}) {
   const t = TRANSITIONS[action];
   if (!t || !DIRECT_ACTIONS.includes(action)) throw { status: 400, message: `Unknown action '${action}'` };
@@ -145,7 +145,7 @@ async function performAction(assetId, action, actor, opts = {}) {
   });
 }
 
-// ═══ 2. Eligibility (read-only) ════════════════════════════════════════
+// ═══ 2. Eligibility (read-only) ═══════════════════════════════════
 // Powers GET /api/eligibility and the asset picker, so staff see an item
 // greyed out with a reason BEFORE they try to hand it over. The
 // eligibility rule itself lives in SQL (public.asset_eligible) so the
@@ -171,7 +171,7 @@ async function checkEligibility(loaneeId, assetIds) {
   });
 }
 
-// ═══ 3. Check-out — cart-style, ALL-OR-NOTHING ═════════════════════════
+// ═══ 3. Check-out — cart-style, ALL-OR-NOTHING ═══════════════════════
 // One loanee, N assets, one transaction. If ANY item fails, nothing goes
 // out and the caller gets back exactly which rows blocked it.
 //
@@ -196,7 +196,7 @@ async function performCheckout(loaneeId, items, actor, opts = {}) {
       `SELECT id, full_name, status FROM public.loanees WHERE id = $1`, [loaneeId]
     );
     const loanee = lr.rows[0];
-    if (!loanee) throw { status: 404, message: 'Loanee not found' };
+    if (!loanee) throw { status: 404, message: 'Committee member not found' };
     if (loanee.status !== 'active') {
       throw { status: 400, message: `${loanee.full_name} is marked inactive and can't be issued equipment.` };
     }
@@ -297,7 +297,7 @@ async function performCheckout(loaneeId, items, actor, opts = {}) {
   });
 }
 
-// ═══ 4. Check-in — all at once or item by item ═════════════════════════
+// ═══ 4. Check-in — all at once or item by item ═══════════════════════
 // `perItem` lets one call mix outcomes: three radios back on the shelf
 // and one routed straight to maintenance, in a single transaction.
 async function performCheckin(loanItemIds, actor, opts = {}) {
@@ -385,7 +385,7 @@ async function performCheckin(loanItemIds, actor, opts = {}) {
   });
 }
 
-// ═══ 5. Extend a due date ══════════════════════════════════════════════
+// ═══ 5. Extend a due date ════════════════════════════════════════
 async function performExtend(loanId, dueAt, actor, opts = {}) {
   if (!['staff', 'admin'].includes(actor.role)) throw { status: 403, message: 'Forbidden' };
 

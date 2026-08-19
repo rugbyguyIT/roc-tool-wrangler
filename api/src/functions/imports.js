@@ -268,13 +268,13 @@ app.http('importPreview', {
         if (kind === 'group_members') {
           out.verdict = 'update'; out.message = 'Will be added to the group';
         } else if (body.options?.apply_updates) {
-          out.verdict = 'update'; out.message = 'Existing loanee will be updated';
+          out.verdict = 'update'; out.message = 'Existing committee member will be updated';
         } else {
           out.verdict = 'skip_duplicate'; out.message = 'This person already exists';
         }
       } else if (kind === 'group_members' && !body.options?.create_missing_loanees) {
         out.verdict = 'error';
-        out.message = 'No matching loanee — tick "also create missing loanees" or import them first';
+        out.message = 'No matching committee member — tick "also create missing committee members" or import them first';
       }
       results.push(out);
     }

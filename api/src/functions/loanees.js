@@ -9,6 +9,11 @@
 //   PATCH  /api/loanees/{id}         admin
 //   PATCH  /api/loanees/{id}/groups  admin
 //   DELETE /api/loanees/{id}         admin (soft delete)
+//
+// The routes, the table and the columns say "loanee"; everything a person
+// reads says "committee member". Renaming the machine-facing half would
+// touch the schema, every query and every saved URL to change nothing
+// anyone sees.
 // ─────────────────────────────────────────────────────────────
 const { app } = require('@azure/functions');
 const { query, withTransaction } = require('../db');
@@ -198,9 +203,9 @@ app.http('loaneesGet', {
     const id = request.params.id;
     // Not a UUID means not a loanee id. 404, rather than letting Postgres
     // raise 22P02 and turn it into a 500.
-    if (!uuidOrNull(id)) return err('Loanee not found', 404);
+    if (!uuidOrNull(id)) return err('Committee member not found', 404);
     const r = await query(`SELECT * FROM public.loanees WHERE id = $1`, [id]);
-    if (!r.rows.length) return err('Loanee not found', 404);
+    if (!r.rows.length) return err('Committee member not found', 404);
     const groups = await query(
       `SELECT g.id, g.name FROM public.group_members gm
        JOIN public.groups g ON g.id = gm.group_id
@@ -280,7 +285,7 @@ app.http('loaneesCreate', {
       });
       return json(created, 201);
     } catch (e) {
-      if (e.code === '23505') return err('A loanee with that email address already exists', 409);
+      if (e.code === '23505') return err('A committee member with that email address already exists', 409);
       throw e;
     }
   },
@@ -295,7 +300,7 @@ app.http('loaneesUpdate', {
     const { body, bad } = await readJson(request); if (bad) return bad;
 
     const cur = await query(`SELECT * FROM public.loanees WHERE id = $1`, [id]);
-    if (!cur.rows.length) return err('Loanee not found', 404);
+    if (!cur.rows.length) return err('Committee member not found', 404);
     const before = cur.rows[0];
 
     const sets = []; const vals = []; let i = 1;
@@ -337,7 +342,7 @@ app.http('loaneesUpdate', {
       });
       return json(r.rows[0]);
     } catch (e) {
-      if (e.code === '23505') return err('Another loanee already has that email address', 409);
+      if (e.code === '23505') return err('Another committee member already has that email address', 409);
       throw e;
     }
   },
@@ -393,7 +398,7 @@ app.http('loaneesDelete', {
     }
     const r = await query(
       `UPDATE public.loanees SET status = 'inactive', updated_at = now() WHERE id = $1 RETURNING full_name`, [id]);
-    if (!r.rows.length) return err('Loanee not found', 404);
+    if (!r.rows.length) return err('Committee member not found', 404);
     await logAudit(request, {
       profile_id: user.sub, email: user.email,
       action: 'loanee_deactivated', detail: r.rows[0].full_name,
@@ -404,7 +409,7 @@ app.http('loaneesDelete', {
 
 module.exports = {};
 
-// ═══════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
 // Bulk removal.
 //
 // Two rules run through both routes below, and they are the whole design:
@@ -420,7 +425,7 @@ module.exports = {};
 //
 // Both routes report the split, so "delete" never quietly means something
 // other than what was clicked.
-// ═══════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
 async function removeLoanees(client, ids, reason) {
   if (!ids.length) return { deleted: 0, deactivated: 0, deactivated_names: [] };
 
