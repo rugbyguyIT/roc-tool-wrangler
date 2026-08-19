@@ -98,7 +98,7 @@ app.http('loaneesLookup', {
 
     const r = await query(
       `SELECT ln.id, ln.full_name, ln.first_name, ln.last_name, ln.email, ln.phone_mobile,
-              ln.position, ln.sub_committee,
+              ln.position, ln.sub_committee, ln.member_number, ln.title,
               (lower(coalesce(ln.email,'')) = lower($1)) AS is_exact,
               (SELECT count(*) FROM public.loan_items li
                  JOIN public.loans l ON l.id = li.loan_id
@@ -333,7 +333,7 @@ app.http('loaneesDelete', {
 
 module.exports = {};
 
-// ═══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 // Bulk removal.
 //
 // Two rules run through both routes below, and they are the whole design:
@@ -349,7 +349,7 @@ module.exports = {};
 //
 // Both routes report the split, so "delete" never quietly means something
 // other than what was clicked.
-// ═══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 async function removeLoanees(client, ids, reason) {
   if (!ids.length) return { deleted: 0, deactivated: 0, deactivated_names: [] };
 
