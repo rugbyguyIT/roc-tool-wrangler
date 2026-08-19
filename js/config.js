@@ -16,4 +16,4 @@
 const APP_NAME = 'HLSR Asset Tracker';
 const APP_SHORT = 'HLSR Assets';
 const APP_ORG = 'Houston Livestock Show and Rodeo™';
-const APP_VERSION = '0.11.0';
+const APP_VERSION = '0.12.0';
