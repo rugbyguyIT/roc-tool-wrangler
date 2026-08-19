@@ -138,12 +138,22 @@ production. There is no staging step and no review. So:
 
 - assemble the real file content before opening the tool call, never a
   stand-in you intend to fill in
-- after every push of a `.js` file under `api/`, fetch the deployed copy
-  back and parse it (`git show origin/main:<path>` → `new vm.Script(...)`)
+- after every push of **any** `.js` file, fetch the deployed copy back
+  and parse it (`git show origin/main:<path>` → `new vm.Script(...)`)
   before moving on
 - if the API ever answers **404 on every route including `/api/health`**,
   that is this failure mode, not a routing bug. Look at what the last
   commit did to a file under `api/src/`.
+
+This happened **twice**: `PLACEHOLDER` into `api/src/functions/repairs.js`,
+then `PENDING` into `js/picker.js` — the second one hours after writing the
+paragraph above. Front-end files are not the safer case: `js/picker.js`
+defines `attachPicker`, which `pages/staff.html` calls at boot, so the
+counter page threw on load with nothing in the UI to say why. Writing the
+rule down did not prevent the repeat; the fetch-back check is what caught
+it. Run the check, every time, on every pushed file — treat it as part of
+the push, not as a follow-up step that can be skipped when the change
+looked simple.
 
 ## Two numbers beat one when a screen is empty
 
