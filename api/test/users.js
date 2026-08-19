@@ -1,4 +1,4 @@
-// ═════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════
 // App-user search, and creating an account from someone on the roster.
 //
 // Two things are being pinned down here.
@@ -18,7 +18,7 @@
 // second account beside the one you just made.
 //
 //   DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/users.js
-// ═════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════
 const path = require('path');
 const Module = require('module');
 const fs = require('fs');
@@ -78,7 +78,8 @@ function check(label, cond, extra) {
   else { failures.push(label); console.log(`  \x1b[31m✗ ${label}\x1b[0m${extra ? `\n      ${JSON.stringify(extra).slice(0, 400)}` : ''}`); }
 }
 function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
-const names = rows => (rows || []).map(r => r.full_name).sort();
+// The list endpoint is paged now: { rows, total }.
+const names = payload => ((payload && payload.rows) || []).map(r => r.full_name).sort();
 
 (async function run() {
   const { query } = require('../src/db');
@@ -113,7 +114,7 @@ const names = rows => (rows || []).map(r => r.full_name).sort();
   await mk('Dana', 'Sandoval', 'dana@example.com', '713-555-0199', 'staff', null);
   await mk('Marcus', 'Webb', 'mwebb@example.com', '281-555-0142', 'leader', '400500');
   const all = await call('GET', 'users');
-  check('four accounts exist', all.body?.length === 4, all.body?.length);
+  check('four accounts exist', all.body?.total === 4, all.body?.total);
 
   section('Search by name');
   const bySur = await call('GET', 'users?q=Sandoval');
@@ -123,7 +124,7 @@ const names = rows => (rows || []).map(r => r.full_name).sort();
   check('first name matches, case-insensitively', names(byFirst.body).join(',') === 'Kyle Sandoval', names(byFirst.body));
 
   const partial = await call('GET', 'users?q=sando');
-  check('a partial surname still matches', partial.body?.length === 2, names(partial.body));
+  check('a partial surname still matches', partial.body?.total === 2, names(partial.body));
 
   section('Search by email and member number');
   const byEmail = await call('GET', 'users?q=mwebb@example.com');
@@ -148,17 +149,17 @@ const names = rows => (rows || []).map(r => r.full_name).sort();
   // The regression this file exists for.
   const alpha = await call('GET', 'users?q=zzzznotarealname');
   check('an alphabetic term with no match returns NOTHING, not everything',
-    alpha.body?.length === 0, names(alpha.body));
+    alpha.body?.total === 0, names(alpha.body));
 
   const punct = await call('GET', 'users?q=---');
-  check('punctuation-only search does not match everything', punct.body?.length === 0, names(punct.body));
+  check('punctuation-only search does not match everything', punct.body?.total === 0, names(punct.body));
 
   section('Search combines with the existing filters');
   const roleAnd = await call('GET', 'users?q=Sandoval&role=admin');
   check('search AND role narrows to one', names(roleAnd.body).join(',') === 'Kyle Sandoval', names(roleAnd.body));
 
   const none = await call('GET', 'users');
-  check('no search term still returns everyone', none.body?.length === 4, none.body?.length);
+  check('no search term still returns everyone', none.body?.total === 4, none.body?.total);
 
   section('Creating an account from someone on the roster');
   const ln = await call('POST', 'loanees', {

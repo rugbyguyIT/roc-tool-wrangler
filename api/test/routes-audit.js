@@ -1,4 +1,4 @@
-// ─────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────
 // HLSR Asset Tracker — route authorisation audit.
 //
 // `leader` is the first genuinely read-only role in either app, which
@@ -11,7 +11,7 @@
 //
 // Run it before every release. Exits non-zero if any mutating route is
 // missing a role gate, or any read route is missing an auth check.
-// ─────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────
 const fs = require('fs');
 const path = require('path');
 
@@ -36,8 +36,33 @@ for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.js'))) {
     const name = (part.match(/^\s*['"`]([\w${}]+)['"`]/) || [])[1] || '(computed)';
     const methods = (part.match(/methods:\s*\[([^\]]*)\]/) || [])[1] || '';
     const route = (part.match(/route:\s*['"`]([^'"`,]+)['"`]/) || [])[1] || '(computed)';
-    const body = part.split(/\n\}\);/)[0];
+    let body = part.split(/\n\}\);/)[0];
     total++;
+
+    // `handler: someNamedFunction` — the gate lives in that function, not
+    // inline. Follow the reference and audit the function it names, or this
+    // check silently stops guarding every route written that way. (Routes
+    // that collide with an {id} template are defined like this on purpose;
+    // see the note in loans.js.)
+    const ref = (body.match(/handler:\s*([A-Za-z_$][\w$]*)\s*[,}]/) || [])[1];
+    if (ref) {
+      const fn = src.match(new RegExp(`(?:async\\s+)?function\\s+${ref}\\s*\\([^)]*\\)\\s*\\{`));
+      if (!fn) {
+        issues.push(`${f} · ${name}: handler names ${ref}, which is not a function in this file`);
+      } else {
+        // Brace-match to take ONLY that function's body. Reading to the end
+        // of the file instead would let any later function's requireAuth
+        // satisfy this check — a false pass, which is the one failure mode
+        // an audit must not have.
+        const start = fn.index + fn[0].length - 1;
+        let depth = 0, end = start;
+        for (let i = start; i < src.length; i++) {
+          if (src[i] === '{') depth++;
+          else if (src[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+        }
+        body += '\n' + src.slice(start, end + 1);
+      }
+    }
 
     if (!/authLevel:\s*['"]anonymous['"]/.test(body)) {
       issues.push(`${f} · ${name}: authLevel must be 'anonymous' (auth is enforced in-handler)`);

@@ -48,9 +48,17 @@ async function load() {
 function render() {
   const el = document.getElementById('results');
   if (!ROWS.length) {
+    // An empty catalog and a filter that matched nothing are different
+    // situations. Blaming filters nobody has touched reads as a bug and
+    // sends people hunting for a filter to clear.
+    const filtered = [...filters().keys()].length > 0;
     el.innerHTML = `<div class="card"><div style="padding:34px;text-align:center">
-      <div style="font-weight:600">No assets match those filters.</div>
-      ${isAdmin ? '<div class="small muted" style="margin-top:6px">Add one with the button above, or import a spreadsheet from Admin → Assets.</div>' : ''}
+      <div style="font-weight:600">${filtered
+        ? 'No assets match those filters.'
+        : 'No equipment in the catalog yet.'}</div>
+      ${filtered
+        ? '<div class="small muted" style="margin-top:6px">Clear the filters to see everything.</div>'
+        : (isAdmin ? '<div class="small muted" style="margin-top:6px">Add one with the button above, or import a spreadsheet from Admin → Assets.</div>' : '')}
     </div></div>`;
     return;
   }
@@ -82,7 +90,7 @@ function render() {
     </table></div>`;
 }
 
-// ── Detail ─────────────────────────────────────────────────────
+// ── Detail ────────────────────────────────────────────────
 async function openAsset(id) {
   const { data: a, error } = await api(`/assets/${id}`);
   if (error) return toastMsg('Could not open that asset', error, 'error');
@@ -172,7 +180,7 @@ async function assetAction(id, action) {
   load();
 }
 
-// ── Admin editing ──────────────────────────────────────────────
+// ── Admin editing ────────────────────────────────────────────
 function assetFormFields(a) {
   a = a || {};
   const opts = (list, sel) => `<option value="">—</option>` +
@@ -348,7 +356,7 @@ async function removePhoto(assetId, photoId) {
   load();
 }
 
-// ── Boot ───────────────────────────────────────────────────────
+// ── Boot ──────────────────────────────────────────────
 (async function init() {
   if (!me) return;
   if (isAdmin) {
