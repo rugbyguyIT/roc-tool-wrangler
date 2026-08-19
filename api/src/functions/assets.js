@@ -110,7 +110,12 @@ app.http('assetsLookup', {
             OR a.asset_tag ILIKE '%'||$1||'%'
             OR a.title ILIKE '%'||$1||'%'
             OR coalesce(a.serial,'') ILIKE '%'||$1||'%' )
-       ORDER BY is_exact DESC, similarity(a.title, $1) DESC, a.asset_tag
+       -- No similarity() here either: see the note in loanees.js. pg_trgm
+       -- going missing must not take the asset picker down with it.
+       ORDER BY is_exact DESC,
+                (a.asset_tag ILIKE $1||'%') DESC,
+                (a.title ILIKE $1||'%') DESC,
+                a.asset_tag
        LIMIT 10`, [q, forLoanee]);
 
     const annotated = r.rows.map(a => {
