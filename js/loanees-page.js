@@ -52,16 +52,12 @@ const COLUMNS = [
 ];
 
 // ── Excel-style column filter (Committee) ─────────────────────────────
-// A funnel on the column header opens a tick list of every committee on
-// the roster, with counts. Nothing ticked means everything, so the funnel
-// is only "on" when a real subset is chosen.
+// The panel itself lives in js/assets-ui.js so the App Users role filter is
+// literally the same control. This is only the committee data feeding it.
 
 function filterButton(c) {
-  const on = LN.committees.length > 0;
-  return ` <button type="button" class="th-filter${on ? ' is-on' : ''}"
-    onclick="openCommitteeFilter(event)"
-    title="${on ? `Filtered to ${LN.committees.length} committee(s)` : 'Filter by committee'}">
-    <i class="fa-solid fa-filter"></i>${on ? `<span>${LN.committees.length}</span>` : ''}</button>`;
+  return columnFilterButton('openCommitteeFilter(event)',
+    LN.committees.length, 'Filter by committee');
 }
 
 async function loadCommittees(force) {
@@ -73,92 +69,28 @@ async function loadCommittees(force) {
 }
 
 async function openCommitteeFilter(ev) {
-  ev.stopPropagation();
-  closeCommitteeFilter();
+  // The list has to be in hand before the panel can open, and the shared
+  // opener needs the anchor element off the event — so capture it now. The
+  // browser clears currentTarget as soon as this handler returns, which is
+  // before the await below resolves.
   const anchor = ev.currentTarget;
   const list = await loadCommittees();
-
-  // Working copy: nothing changes until Apply, so ticking through a long
-  // list doesn't fire a query per tick.
-  const draft = new Set(LN.committees);
-
-  const panel = document.createElement('div');
-  panel.className = 'col-filter';
-  panel.id = 'col-filter';
-  panel.innerHTML = `
-    <div class="col-filter-head">
-      <input class="form-input" id="cf-search" type="search" placeholder="Search committees…" />
-    </div>
-    <label class="col-filter-all">
-      <input type="checkbox" id="cf-all" ${draft.size === 0 ? 'checked' : ''} />
-      <b>(All committees)</b>
-    </label>
-    <div class="col-filter-list" id="cf-list">
-      ${list.map((r, i) => `
-        <label class="col-filter-row" data-name="${esc((r.name || '').toLowerCase())}">
-          <input type="checkbox" data-i="${i}" ${draft.has(r.name) ? 'checked' : ''} />
-          <span>${r.name ? esc(r.name) : '<i>(no committee)</i>'}</span>
-          <span class="muted small">${r.n}</span>
-        </label>`).join('') || '<div class="small muted" style="padding:8px">No committees yet.</div>'}
-    </div>
-    <div class="col-filter-foot">
-      <button type="button" class="btn btn-sm" id="cf-clear">Clear</button>
-      <div style="flex:1"></div>
-      <button type="button" class="btn btn-sm" id="cf-cancel">Cancel</button>
-      <button type="button" class="btn btn-sm btn-primary" id="cf-apply">Apply</button>
-    </div>`;
-
-  document.body.appendChild(panel);
-  const r = anchor.getBoundingClientRect();
-  // Kept inside the viewport: this column sits near the right edge on a
-  // laptop, and a panel hanging off the screen cannot be scrolled to.
-  const width = 260;
-  panel.style.top = `${window.scrollY + r.bottom + 6}px`;
-  panel.style.left = `${Math.max(8, Math.min(window.scrollX + r.left, window.scrollX + window.innerWidth - width - 12))}px`;
-
-  const boxes = () => [...panel.querySelectorAll('#cf-list input[type=checkbox]')];
-  const syncAll = () => {
-    panel.querySelector('#cf-all').checked = boxes().every(b => !b.checked);
-  };
-
-  panel.querySelector('#cf-all').addEventListener('change', (e) => {
-    if (e.target.checked) boxes().forEach(b => { b.checked = false; });
-    else e.target.checked = true;   // untick "(All)" only by ticking something
+  openColumnFilter({ currentTarget: anchor, stopPropagation() {} }, {
+    // '' is a real value here: the people with no committee at all.
+    items: list.map(r => ({ value: r.name, label: r.name, n: r.n })),
+    selected: LN.committees,
+    allLabel: '(All committees)',
+    placeholder: 'Search committees…',
+    onApply: (values) => { LN.committees = values; LN.offset = 0; loadLoanees(); },
   });
-  boxes().forEach(b => b.addEventListener('change', syncAll));
-
-  panel.querySelector('#cf-search').addEventListener('input', (e) => {
-    const s = e.target.value.trim().toLowerCase();
-    panel.querySelectorAll('.col-filter-row').forEach(row => {
-      row.style.display = !s || row.dataset.name.includes(s) ? '' : 'none';
-    });
-  });
-
-  panel.querySelector('#cf-cancel').addEventListener('click', closeCommitteeFilter);
-  panel.querySelector('#cf-clear').addEventListener('click', () => {
-    LN.committees = []; LN.offset = 0; closeCommitteeFilter(); loadLoanees();
-  });
-  panel.querySelector('#cf-apply').addEventListener('click', () => {
-    LN.committees = boxes().filter(b => b.checked).map(b => list[Number(b.dataset.i)].name);
-    LN.offset = 0;
-    closeCommitteeFilter();
-    loadLoanees();
-  });
-
-  panel.addEventListener('click', e => e.stopPropagation());
-  setTimeout(() => {
-    document.addEventListener('click', closeCommitteeFilter, { once: true });
-    panel.querySelector('#cf-search')?.focus();
-  }, 0);
-}
-
-function closeCommitteeFilter() {
-  document.getElementById('col-filter')?.remove();
 }
 
 async function loadGroups() {
   const { data } = await api('/groups');
-  GROUPS = (data && data.rows) || [];
+  // /api/groups returns a bare array, not { rows }. Reading .rows off it
+  // made GROUPS permanently empty, so the "Any group" filter never had a
+  // single option in it and the page looked like it had no groups at all.
+  GROUPS = Array.isArray(data) ? data : (data && data.rows) || [];
   const sel = document.getElementById('ln-group');
   if (!sel) return;
   const current = sel.value;
@@ -441,7 +373,7 @@ function setStatusFilter(v) {
   loadLoanees();
 }
 
-// ── Boot ──────────────────────────────────────────────
+// ── Boot ─────────────────────────────────────────────
 (async function () {
   brandPage();
 
