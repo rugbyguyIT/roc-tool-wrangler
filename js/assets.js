@@ -12,6 +12,10 @@ let LOCATIONS = [];
 let GROUPS = [];
 let ROWS = [];
 let debounceTimer = null;
+// Why a lookup list is empty, kept so the asset form can say so. An empty
+// dropdown with no explanation is indistinguishable from a broken one, and
+// that is exactly how this arrived as a bug report.
+let LOOKUP_ERR = { categories: null, locations: null };
 
 function filters() {
   const g = document.getElementById('f-group').value;
@@ -90,7 +94,7 @@ function render() {
     </table></div>`;
 }
 
-// ── Detail ────────────────────────────────────────────────
+// ── Detail ───────────────────────────────────────────────
 async function openAsset(id) {
   const { data: a, error } = await api(`/assets/${id}`);
   if (error) return toastMsg('Could not open that asset', error, 'error');
@@ -181,10 +185,46 @@ async function assetAction(id, action) {
 }
 
 // ── Admin editing ────────────────────────────────────────────
+// An empty dropdown has to say why it is empty. There are three reasons and
+// they need three different actions from whoever is standing there:
+// the request failed, nothing has been set up yet, or everything that exists
+// was filtered out of this particular list.
+function lookupNote(kind, list, err, extra) {
+  if (err) {
+    return `<div class="small" style="color:var(--red);margin-top:6px">
+      Could not load ${kind}: ${esc(err)}</div>`;
+  }
+  if (!list.length) {
+    return `<div class="small" style="color:var(--amber);margin-top:6px">
+      No ${kind} have been set up yet — add them under
+      <a href="/pages/admin.html#sec-lookups">Admin → Lookups</a>.</div>`;
+  }
+  return extra || '';
+}
+
 function assetFormFields(a) {
   a = a || {};
   const opts = (list, sel) => `<option value="">—</option>` +
     list.map(x => `<option value="${x.id}"${x.id === sel ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
+
+  // Repair destinations (EAC/ADC, the maintenance barn) are where equipment
+  // goes when it breaks, not where it lives — an asset gets there via Send
+  // for repair, which already records who has it. A currently-set one is
+  // kept so editing an older asset does not silently clear its location.
+  //
+  // But if every location is flagged as a repair destination, excluding them
+  // leaves an empty dropdown and no way to save a location at all. An
+  // imperfect list beats a dead control, so in that case show all of them
+  // and say what happened.
+  const homes = LOCATIONS.filter(l => !l.is_repair_destination || l.id === a.location_id);
+  const locList = homes.length ? homes : LOCATIONS;
+  const locNote = (!homes.length && LOCATIONS.length)
+    ? `<div class="small" style="color:var(--amber);margin-top:6px">
+         Every location is marked as a repair destination, so they are all
+         listed here. Untick that on the ones equipment actually lives at,
+         under <a href="/pages/admin.html#sec-lookups">Admin → Lookups</a>.</div>`
+    : '';
+
   return `
     <div class="form-row">
       <div class="form-group">
@@ -210,17 +250,12 @@ function assetFormFields(a) {
       <div class="form-group">
         <label class="form-label">Category</label>
         <select class="form-input" name="category_id">${opts(CATEGORIES, a.category_id)}</select>
+        ${lookupNote('categories', CATEGORIES, LOOKUP_ERR.categories)}
       </div>
       <div class="form-group">
         <label class="form-label">Location</label>
-        <select class="form-input" name="location_id">${opts(
-          // Repair destinations (EAC/ADC, the maintenance barn) are where
-          // equipment goes when it breaks, not where it lives — an asset
-          // gets there via Send for repair, which already records who has
-          // it. A currently-set one is kept in the list so editing an
-          // older asset does not silently clear its location.
-          LOCATIONS.filter(l => !l.is_repair_destination || l.id === a.location_id),
-          a.location_id)}</select>
+        <select class="form-input" name="location_id">${opts(locList, a.location_id)}</select>
+        ${lookupNote('locations', LOCATIONS, LOOKUP_ERR.locations, locNote)}
       </div>
     </div>
     <div class="form-group">
@@ -365,6 +400,7 @@ async function removePhoto(assetId, photoId) {
   }
   const [c, l, g] = await Promise.all([api('/categories'), api('/locations'), api('/groups')]);
   CATEGORIES = c.data || []; LOCATIONS = l.data || []; GROUPS = g.data || [];
+  LOOKUP_ERR = { categories: c.error || null, locations: l.error || null };
   CATEGORIES.forEach(x => document.getElementById('f-category').add(new Option(x.name, x.id)));
   LOCATIONS.forEach(x => document.getElementById('f-location').add(new Option(x.name, x.id)));
   GROUPS.forEach(x => document.getElementById('f-group').add(new Option(x.name, x.id)));
