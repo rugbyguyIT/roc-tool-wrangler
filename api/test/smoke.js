@@ -616,6 +616,19 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   check('a late return is flagged', rob.some(x => x.returned_late === true || x.currently_overdue === true),
     rob.map(x => [x.asset_tag, x.returned_late, x.currently_overdue]));
 
+  // This report is what the Reports page opens on, so its order is a
+  // feature, not a detail. Returned rows lead; anything still out is by
+  // definition the newest checkout, and letting it sort first would fill
+  // page one with the same rows that are already on Out Now.
+  const states = r.body.rows.map(x => x.state);
+  const firstOut = states.indexOf('out');
+  const lastReturned = states.lastIndexOf('returned');
+  check('the history leads with returned items and puts still-out last',
+    firstOut === -1 || lastReturned === -1 || lastReturned < firstOut, states);
+  const retAt = r.body.rows.filter(x => x.state === 'returned').map(x => +new Date(x.checked_out_at));
+  check('and within that block, the newest checkout is first',
+    retAt.every((v, i) => i === 0 || retAt[i - 1] >= v), retAt);
+
   r = await call('GET', `reports/by-asset?asset_id=${RADIO1}`);
   check('by-asset returns the custody chain', r.body.rows.length === 1, r.body.rows);
   check('it records the condition it came back in', r.body.rows[0].in_condition === 'damaged', r.body.rows[0]);
