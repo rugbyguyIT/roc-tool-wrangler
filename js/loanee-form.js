@@ -1,11 +1,16 @@
-// ═══════════════════════════════════════════════════════════════════════
-// Loanee form and actions — shared by the Loanees page and the admin
-// console, so there is exactly one definition of what a loanee record
-// looks like and one place to change it.
+// ══════════════════════════════════════════════════════════════════════
+// Committee-member form and actions — shared by the Committee Members page
+// and the admin console, so there is exactly one definition of what a
+// member record looks like and one place to change it.
 //
 // Both callers define their own loadLoanees(); these call it by name after
 // a save, which is why every one of them is guarded.
-// ═══════════════════════════════════════════════════════════════════════
+//
+// NAMING: everything a person reads says "committee member". Everything the
+// machine reads — the table, the columns, the /loanees routes, the function
+// names in this file — still says "loanee". Renaming those would touch the
+// schema, every query and every saved URL to change nothing anyone sees.
+// ══════════════════════════════════════════════════════════════════════
 
 function loaneeFields(l) {
   l = l || {};
@@ -42,11 +47,11 @@ function loaneeFields(l) {
 }
 
 async function newLoanee() {
-  const form = await formModal('Add loanee', loaneeFields(), { icon: 'fa-user-plus', submitLabel: 'Add' });
+  const form = await formModal('Add committee member', loaneeFields(), { icon: 'fa-user-plus', submitLabel: 'Add' });
   if (!form) return;
   const { error } = await api('/loanees', 'POST', formValues(form));
   if (error) return toastMsg('Could not add them', error, 'error');
-  toastMsg('Loanee added', '', 'ok');
+  toastMsg('Committee member added', '', 'ok');
   if (typeof loadLoanees === 'function') loadLoanees();
 }
 
@@ -108,7 +113,7 @@ async function loaneeHistory(id) {
 async function deactivateLoanee(id, name) {
   const ok = await confirmModal(
     `${name} will stop appearing at the check-out counter. Their history is kept.`,
-    { title: 'Deactivate this loanee?', confirmLabel: 'Deactivate' });
+    { title: 'Deactivate this committee member?', confirmLabel: 'Deactivate' });
   if (!ok) return;
   const { error } = await api(`/loanees/${id}`, 'DELETE');
   if (error) return toastMsg('Could not deactivate', error, 'error');

@@ -1,5 +1,5 @@
-// ═══════════════════════════════════════════════════════════════════════
-// Loanees — the whole roster, on its own page.
+// ══════════════════════════════════════════════════════════════════════
+// Committee Members — the whole roster, on its own page.
 //
 // 493 people is too many for a section buried in the admin console, and
 // too many to render at once. So: 25 at a time by default, alphabetical by
@@ -7,8 +7,8 @@
 // under the reader's control.
 //
 // The form and the row actions come from js/loanee-form.js, shared with
-// the admin console, so a loanee record has one definition.
-// ═══════════════════════════════════════════════════════════════════════
+// the admin console, so a member record has one definition.
+// ══════════════════════════════════════════════════════════════════════
 const me = requireLogin('staff', 'admin');
 
 const PAGE_SIZES = [25, 50, 100, 250, 500];
@@ -51,7 +51,7 @@ const COLUMNS = [
   // here invited reading this page as a custody screen, which it isn't.
 ];
 
-// ── Excel-style column filter (Committee) ─────────────────────────────
+// ── Excel-style column filter (Committee) ──────────────────────
 // The panel itself lives in js/assets-ui.js so the App Users role filter is
 // literally the same control. This is only the committee data feeding it.
 
@@ -124,7 +124,7 @@ async function loadLoanees() {
     el.innerHTML = `<div class="small muted" style="padding:28px;text-align:center">
       ${LN.q || LN.groupId || LN.committees.length
         ? 'Nobody matches that. Clear the filters to see everyone.'
-        : 'No loanees yet. Sync the roster to load them all in one go.'}</div>`;
+        : 'No committee members yet. Sync the roster to load them all in one go.'}</div>`;
     renderPager();
     return;
   }
@@ -240,7 +240,7 @@ function setPageSize(n) {
   loadLoanees();
 }
 
-// ── Sorting ──────────────────────────────────────────────────
+// ── Sorting ────────────────────────────────
 // The direction is chosen explicitly, so there is no hidden toggle state.
 // Clearing the active column's select falls back to last name ascending
 // rather than leaving the list in an undefined order.
@@ -265,7 +265,7 @@ function clearSort() {
   loadLoanees();
 }
 
-// ── Selection ────────────────────────────────────────────────
+// ── Selection ──────────────────────────────
 function rowTick(ev, index, id) {
   // Shift extends from the last row you ticked, exactly like a file list.
   if (ev.shiftKey && LAST_CLICKED !== null) {
@@ -331,11 +331,11 @@ async function deleteSelected() {
   loadLoanees();
 }
 
-// ── Clear roster ─────────────────────────────────────────────
+// ── Clear roster ─────────────────────────────
 function clearRoster() {
   formModal('Clear the entire roster', `
     <div class="card card-sm" style="border-left:3px solid var(--red);margin-bottom:14px">
-      <div class="small"><b>This removes every loanee.</b> Anyone who has ever been on a
+      <div class="small"><b>This removes every committee member.</b> Anyone who has ever been on a
       loan is deactivated rather than deleted, so no check-out history is lost — everyone
       else is permanently removed.</div>
     </div>
@@ -373,7 +373,7 @@ function setStatusFilter(v) {
   loadLoanees();
 }
 
-// ── Boot ─────────────────────────────────────────────
+// ── Boot ─────────────────────────
 (async function () {
   brandPage();
 
