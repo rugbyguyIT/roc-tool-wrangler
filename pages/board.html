@@ -52,8 +52,12 @@
     </div>
 
     <div class="main-panel">
+      <!-- Text is written by refresh() in js/board.js: this banner fires on
+           any failed refresh, and "no connection" is a lie when the phone
+           has five bars and the server returned an error. -->
       <div class="board-offline">
-        <i class="fa-solid fa-wifi"></i> No connection — showing the last data loaded.
+        <i class="fa-solid fa-wifi"></i>
+        <span id="board-offline-text">No connection — showing the last data loaded.</span>
       </div>
 
       <div class="stat-grid" id="stats"></div>
