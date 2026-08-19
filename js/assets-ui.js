@@ -63,7 +63,7 @@ function assetThumb(url, size = 44) {
     : `<div style="width:${size}px;height:${size}px;border-radius:8px;background:var(--surface3);display:flex;align-items:center;justify-content:center;color:var(--muted2)"><i class="fa-solid fa-camera"></i></div>`;
 }
 
-// ── Colour and manufacturer ─────────────────────────────
+// ── Colour and manufacturer ───────────────────────
 // The two facts that tell one unit from another across a shed. Rendered
 // the same way everywhere — the list, the detail, the check-out picker and
 // the cart — so "the white Club Car" looks like the same thing on every
@@ -110,7 +110,7 @@ function fmtDuration(hours) {
   return `${Math.floor(h / 24)}d ${Math.floor(h % 24)}h`;
 }
 
-// ── Live countdown ──────────────────────────────────
+// ── Live countdown ─────────────────────────
 // One ticking element, driven off due_at, for a board left up on a wall.
 // A static "due 6:00 PM" is a number you have to do arithmetic on; a
 // countdown is the answer already worked out, which is the whole point of
@@ -411,14 +411,14 @@ function formValues(form) {
   return o;
 }
 
-// ── Excel-style column filter ──────────────────────────────────
+// ── Excel-style column filter ────────────────────────────────
 // A funnel on a column header opens a tick list of every value in that
 // column, with counts. Nothing ticked means everything, so the funnel only
 // reads as "on" when a real subset is chosen.
 //
-// Shared because the Loanees committee filter and the App Users role filter
-// are the same control over different data. Two copies would drift, and the
-// half that drifts is always the one nobody is looking at.
+// Shared because the Committee Members committee filter and the App Users
+// role filter are the same control over different data. Two copies would
+// drift, and the half that drifts is always the one nobody is looking at.
 
 // `onclick` is passed as an expression string because the header is built as
 // HTML and re-rendered on every load; a bound listener would be thrown away
@@ -525,7 +525,7 @@ function openColumnFilter(ev, opts) {
   }, 0);
 }
 
-// ── Shared top nav ──────────────────────────────────────────
+// ── Shared top nav ──────────────────────────────
 // Fills any EMPTY .topnav-links with the right links for the signed-in
 // role, so the menu persists as you move between pages. admin.html
 // hardcodes its own (its tabs are in-page view switches, not URLs), and
@@ -543,14 +543,14 @@ function renderTopNav() {
     items = link('/pages/staff.html', 'fa-right-left', 'Check In / Out')
       + link('/pages/board.html', 'fa-tower-observation', 'Out Now')
       + link('/pages/assets.html', 'fa-boxes-stacked', 'Assets')
-      + link('/pages/loanees.html', 'fa-users', 'Loanees')
+      + link('/pages/members.html', 'fa-users', 'Members')
       + link('/pages/reports.html', 'fa-chart-line', 'Reports')
       + link('/pages/admin.html', 'fa-gear', 'Admin');
   } else if (prof.role === 'staff') {
     items = link('/pages/staff.html', 'fa-right-left', 'Check In / Out')
       + link('/pages/board.html', 'fa-tower-observation', 'Out Now')
       + link('/pages/assets.html', 'fa-boxes-stacked', 'Assets')
-      + link('/pages/loanees.html', 'fa-users', 'Loanees');
+      + link('/pages/members.html', 'fa-users', 'Members');
   } else if (prof.role === 'leader') {
     items = link('/pages/board.html', 'fa-tower-observation', 'Out Now')
       + link('/pages/assets.html', 'fa-boxes-stacked', 'Assets');
