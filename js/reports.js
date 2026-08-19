@@ -10,9 +10,17 @@
 // ─────────────────────────────────────────────────────────────
 const me = requireLogin('admin');
 
-let CURRENT = 'out-now';
+// The page opens on the checkout history, not on Out Now. Out Now is
+// already the whole leader board and the whole check-in screen — opening
+// Reports on it a third time answers a question nobody came here to ask.
+// What Reports is for is the record: who has had what, newest first.
+let CURRENT = 'by-loanee';
 let ROWS = [];
 let LOANEES_CACHE = [];
+
+// Tab order, declared rather than inherited from the object literal, so
+// the landing report can lead without moving a 40-line block around.
+const TAB_ORDER = ['by-loanee', 'out-now', 'overdue', 'by-asset', 'inventory', 'activity'];
 
 const cond = v => v ? String(v).replace(/_/g, ' ') : '';
 const yesNo = v => (v ? 'Yes' : 'No');
@@ -35,7 +43,7 @@ const REPORTS = {
     csv: [
       { key: 'asset_tag', label: 'Asset tag' }, { key: 'asset_title', label: 'Item' },
       { key: 'category', label: 'Category' }, { key: 'serial', label: 'Serial' },
-      { key: 'loanee_name', label: 'Loanee' }, { key: 'sub_committee', label: 'Sub-committee' },
+      { key: 'loanee_name', label: 'Member' }, { key: 'sub_committee', label: 'Sub-committee' },
       { key: 'position', label: 'Position' }, { key: 'loanee_email', label: 'Email' },
       { key: 'loanee_phone', label: 'Cell' },
       { key: 'checked_out_at', label: 'Checked out', fmt: csvDate },
@@ -63,7 +71,7 @@ const REPORTS = {
     ],
     csv: [
       { key: 'asset_tag', label: 'Asset tag' }, { key: 'asset_title', label: 'Item' },
-      { key: 'loanee_name', label: 'Loanee' }, { key: 'sub_committee', label: 'Sub-committee' },
+      { key: 'loanee_name', label: 'Member' }, { key: 'sub_committee', label: 'Sub-committee' },
       { key: 'loanee_phone', label: 'Cell' }, { key: 'loanee_email', label: 'Email' },
       { key: 'checked_out_at', label: 'Checked out', fmt: csvDate },
       { key: 'due_at', label: 'Was due', fmt: csvDate },
@@ -73,9 +81,13 @@ const REPORTS = {
   },
 
   'by-loanee': {
-    label: 'By person', icon: 'fa-user',
+    label: 'Checkout history', icon: 'fa-clock-rotate-left',
     path: () => `/reports/by-loanee?${dateParams()}${filterParam('loanee_id')}`,
-    blurb: 'Everything a person has had, current and historical.',
+    // Newest checkout first, and returned items lead. Anything still out
+    // sorts to the end on purpose: it is the newest by date, so a plain
+    // chronological sort would fill the first page with the same rows that
+    // are already on Out Now and on the board.
+    blurb: 'Every checkout, newest first. Anything still out sits at the end — Out Now has that list.',
     filters: () => loaneeFilter(),
     rollup: true,
     columns: [
@@ -91,7 +103,7 @@ const REPORTS = {
         ].join(' ') },
     ],
     csv: [
-      { key: 'full_name', label: 'Loanee' }, { key: 'sub_committee', label: 'Sub-committee' },
+      { key: 'full_name', label: 'Member' }, { key: 'sub_committee', label: 'Sub-committee' },
       { key: 'position', label: 'Position' }, { key: 'email', label: 'Email' }, { key: 'phone_mobile', label: 'Cell' },
       { key: 'asset_tag', label: 'Asset tag' }, { key: 'asset_title', label: 'Item' }, { key: 'category', label: 'Category' },
       { key: 'checked_out_at', label: 'Checked out', fmt: csvDate },
@@ -173,14 +185,14 @@ const REPORTS = {
     csv: [
       { key: 'created_at', label: 'When', fmt: csvDate },
       { key: 'event', label: 'Event' }, { key: 'asset_tag', label: 'Asset tag' },
-      { key: 'asset_title', label: 'Item' }, { key: 'loanee_name', label: 'Loanee' },
+      { key: 'asset_title', label: 'Item' }, { key: 'loanee_name', label: 'Member' },
       { key: 'actor_name', label: 'By' }, { key: 'actor_role', label: 'Role' },
       { key: 'reason', label: 'Reason' },
     ],
   },
 };
 
-// ── Date range ─────────────────────────────────────────────────
+// ── Date range ──────────────────────────────────────────
 function dateParams() {
   const p = new URLSearchParams();
   const from = document.getElementById('r-from').value;
@@ -209,7 +221,7 @@ function setRange(kind) {
   load();
 }
 
-// ── Per-report filters ─────────────────────────────────────────
+// ── Per-report filters ────────────────────────────────────
 let FILTER_VALUE = '';
 function filterParam(name) {
   return FILTER_VALUE ? `&${name}=${encodeURIComponent(FILTER_VALUE)}` : '';
@@ -243,11 +255,17 @@ async function onAssetPick(v) {
   load();
 }
 
-// ── Rendering ──────────────────────────────────────────────────
+// ── Rendering ───────────────────────────────────────────
 function renderTabs() {
-  document.getElementById('report-tabs').innerHTML = Object.entries(REPORTS).map(([k, r]) =>
-    `<button class="btn btn-sm nav-item${k === CURRENT ? ' active' : ''}" onclick="setReport('${k}')">
-       <i class="fa-solid ${r.icon}"></i> ${r.label}</button>`).join('');
+  // Anything present in REPORTS but missing from TAB_ORDER still renders,
+  // at the end — a new report can never go invisible by being forgotten here.
+  const keys = [...TAB_ORDER.filter(k => REPORTS[k]),
+                ...Object.keys(REPORTS).filter(k => !TAB_ORDER.includes(k))];
+  document.getElementById('report-tabs').innerHTML = keys.map((k) => {
+    const r = REPORTS[k];
+    return `<button class="btn btn-sm nav-item${k === CURRENT ? ' active' : ''}" onclick="setReport('${k}')">
+       <i class="fa-solid ${r.icon}"></i> ${r.label}</button>`;
+  }).join('');
 }
 function setReport(k) {
   CURRENT = k;
@@ -327,11 +345,15 @@ function doExport() {
   exportRows(CURRENT, ROWS, REPORTS[CURRENT].csv);
 }
 
-// ── Boot ───────────────────────────────────────────────────────
+// ── Boot ────────────────────────────────────────────────
 (async function init() {
   if (!me) return;
   renderTabs();
-  setRange('month');
+  // All time, not the last 30 days. The landing report is the history, and
+  // a 30-day window silently hides most of it — "nothing here" would read
+  // as "nobody has borrowed anything" rather than "you are looking at a
+  // month". The range chips are right there to narrow it.
+  setRange('all');
 
   ['r-from', 'r-to'].forEach(id => document.getElementById(id).addEventListener('change', load));
 
