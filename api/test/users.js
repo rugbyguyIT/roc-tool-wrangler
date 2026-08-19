@@ -224,6 +224,89 @@ const names = payload => ((payload && payload.rows) || []).map(r => r.full_name)
     `SELECT count(*)::int AS n FROM public.profiles WHERE member_number IS NULL`);
   check('empty string was normalised to NULL', nulls.rows[0].n >= 2, nulls.rows[0]);
 
+  section('Paging defaults to 10');
+  // Push past one page so the default limit is actually exercised; asserting
+  // it against 7 rows would pass with any limit >= 7.
+  for (let i = 0; i < 6; i++) {
+    await call('POST', 'users', {
+      first_name: `Pager${i}`, last_name: `Extra${i}`, email: `pager${i}@example.com`,
+      role: ['staff', 'leader', 'admin'][i % 3], password: 'temporarypassword1',
+    });
+  }
+  const pg = await call('GET', 'users');
+  check('a request with no limit returns 10 rows', pg.body?.rows.length === 10, pg.body?.rows.length);
+  check('and reports the full total behind them', pg.body?.total === 13, pg.body?.total);
+  const pg2 = await call('GET', 'users?offset=10');
+  check('the second page holds the remainder', pg2.body?.rows.length === 3, pg2.body?.rows.length);
+  const capped = await call('GET', 'users?limit=9999');
+  check('limit is capped rather than honoured blindly', capped.body?.rows.length <= 500, capped.body?.rows.length);
+
+  section('Sorting');
+  const byLast = await call('GET', 'users?sort=last_name&dir=asc&limit=500');
+  const lasts = byLast.body.rows.map(r => r.last_name);
+  check('last name ascending is actually sorted',
+    JSON.stringify(lasts) === JSON.stringify([...lasts].sort((a, b) => a.localeCompare(b))), lasts);
+  const byLastDesc = await call('GET', 'users?sort=last_name&dir=desc&limit=500');
+  check('descending is the exact reverse',
+    JSON.stringify(byLastDesc.body.rows.map(r => r.last_name)) === JSON.stringify([...lasts].reverse()),
+    byLastDesc.body.rows.map(r => r.last_name));
+
+  // The stored values sort admin, leader, staff. Sorting by them directly
+  // would put Leadership above Base, which is not how the screen reads.
+  const byRole = await call('GET', 'users?sort=role&dir=asc&limit=500');
+  const roleSeq = byRole.body.rows.map(r => r.role);
+  check('role sorts by rank, not alphabetically by the stored value',
+    JSON.stringify(roleSeq) === JSON.stringify([...roleSeq].sort(
+      (a, b) => ({ admin: 1, staff: 2, leader: 3 })[a] - ({ admin: 1, staff: 2, leader: 3 })[b])), roleSeq);
+  check('role is the default sort', (await call('GET', 'users')).body?.sort === 'role');
+
+  // Someone who has never signed in must not be the first thing you see.
+  const byLogin = await call('GET', 'users?sort=last_login_at&dir=asc&limit=500');
+  const seen = byLogin.body.rows.map(r => !!r.last_login_at);
+  check('never-signed-in rows sort last in both directions',
+    seen.indexOf(false) === -1 || !seen.slice(seen.indexOf(false)).includes(true), seen);
+
+  const bogus = await call('GET', 'users?sort=%3B%20DROP%20TABLE%20profiles&dir=sideways');
+  check('an unknown sort key falls back instead of reaching SQL',
+    bogus.body?.sort === 'role' && bogus.body?.dir === 'asc', { sort: bogus.body?.sort, dir: bogus.body?.dir });
+  const stillThere = await call('GET', 'users');
+  check('and the table is still there afterwards', stillThere.body?.total === 13, stillThere.body?.total);
+
+  section('Role filter — repeated parameter, like the committee tick list');
+  const admins = await call('GET', 'users?role=admin&limit=500');
+  check('one role narrows to that role',
+    admins.body.rows.every(r => r.role === 'admin') && admins.body.rows.length > 0, admins.body.total);
+  const two = await call('GET', 'users?role=admin&role=leader&limit=500');
+  check('two roles return both and nothing else',
+    two.body.rows.every(r => ['admin', 'leader'].includes(r.role))
+    && new Set(two.body.rows.map(r => r.role)).size === 2, two.body.total);
+  check('the two-role total is the sum of the two one-role totals',
+    two.body.total === admins.body.total + (await call('GET', 'users?role=leader')).body.total, two.body.total);
+  const badRole = await call('GET', 'users?role=wizard&limit=500');
+  check('an unknown role is ignored rather than matching nothing',
+    badRole.body?.total === 13, badRole.body?.total);
+
+  section('Role counts drive the tick list');
+  const facets = (await call('GET', 'users')).body.role_counts;
+  check('every role is present, so a role nobody holds is still tickable',
+    facets.length === 3 && facets.every(f => typeof f.n === 'number'), facets);
+  check('the counts add up to the unfiltered total',
+    facets.reduce((n, f) => n + f.n, 0) === 13, facets);
+  // A facet panel whose own options vanish as you tick them cannot be widened
+  // again without clearing it first. This is the check that stops that.
+  const whileFiltered = (await call('GET', 'users?role=admin')).body.role_counts;
+  check('ticking a role does NOT shrink the other roles\' counts',
+    JSON.stringify(whileFiltered) === JSON.stringify(facets), whileFiltered);
+  // Search is a different axis, and there the counts should follow.
+  const whileSearching = (await call('GET', 'users?q=Sandoval')).body.role_counts;
+  check('but a search does narrow them, because that is a different question',
+    whileSearching.reduce((n, f) => n + f.n, 0) === 2, whileSearching);
+
+  section('Search still works alongside sorting and the role filter');
+  const combo = await call('GET', 'users?q=Sandoval&role=admin&sort=last_name&dir=asc&limit=500');
+  check('search AND role AND sort compose',
+    names(combo.body).join(',') === 'Kyle Sandoval', names(combo.body));
+
   section('Search stays admin-only');
   const savedToken = TOKEN;
   const staffLogin = await call('POST', 'auth/login', { email: 'pat@example.com', password: 'temporarypassword1' });
