@@ -18,7 +18,7 @@ async function loadShops(force) {
   return SHOPS;
 }
 
-// ── Send ───────────────────────────────────────────────────────────────
+// ── Send ───────────────────────────────────────────────────────
 async function sendForRepair(assetId, assetLabel, defaultShopId) {
   const shops = await loadShops();
   if (!shops.length) {
@@ -69,14 +69,14 @@ async function sendForRepair(assetId, assetLabel, defaultShopId) {
         expected_back: expected ? new Date(expected).toISOString() : null,
       });
       if (error) return toastMsg('Could not send it', error, 'error');
-      toastMsg('Sent for repair', 'It will show under At repair until it comes back.');
+      toastMsg('Sent for repair', 'It will show under Out for repair until it comes back.');
       if (typeof loadAssets === 'function') loadAssets();
       if (typeof loadRepairs === 'function') loadRepairs();
       if (typeof openAsset === 'function' && document.getElementById('asset-detail')) openAsset(assetId);
     });
 }
 
-// ── Receive back ───────────────────────────────────────────────────────
+// ── Receive back ───────────────────────────────────────────────
 function receiveFromRepair(repairId, assetLabel) {
   formModal(`Received back — ${esc(assetLabel || '')}`, `
     <div class="form-group">
@@ -95,7 +95,8 @@ function receiveFromRepair(repairId, assetLabel) {
     <div class="form-group">
       <label class="form-label">Cost</label>
       <input class="form-input" name="cost" placeholder="185.00" />
-      <div class="small muted">Optional. Useful when someone asks whether to keep fixing this one.</div>
+      <div class="small muted">Optional, but it is what makes the repair history worth
+        reading — it is how you answer whether to keep fixing this one.</div>
     </div>
     <div class="small muted" id="rr-note"></div>`,
     { icon: 'fa-circle-check', submitLabel: 'Receive it back' })
@@ -116,49 +117,75 @@ function receiveFromRepair(repairId, assetLabel) {
     });
 }
 
-// ── Admin list ─────────────────────────────────────────────────────────
+// ── Admin list ────────────────────────────────────────────────
+// Two views, and deliberately only two: what is away right now, and the
+// history of everything that has come back. An "Everything" tab was just
+// those two shuffled together, which answers neither question — you cannot
+// scan for what is missing today, and you cannot read the repair record.
 async function loadRepairs(state) {
   const el = document.getElementById('repairs-table');
   if (!el) return;
-  const s = state || (window.REPAIR_STATE || 'open');
+  const s = state === 'closed' ? 'closed' : 'open';
   window.REPAIR_STATE = s;
 
   const { data, error } = await api(`/repairs?state=${encodeURIComponent(s)}`);
   if (error) { el.innerHTML = `<div class="small" style="color:var(--red)">${esc(error)}</div>`; return; }
 
-  const tabs = ['open', 'closed', 'all'].map(k =>
-    `<button class="btn btn-sm ${s === k ? 'btn-primary' : ''}" onclick="loadRepairs('${k}')">${
-      k === 'open' ? 'Away now' : k === 'closed' ? 'Completed' : 'Everything'}</button>`).join(' ');
+  const isOpen = s === 'open';
+  const tabs = `
+    <button class="btn btn-sm ${isOpen ? 'btn-primary' : ''}" onclick="loadRepairs('open')">
+      <i class="fa-solid fa-truck-ramp-box"></i> Out for repair</button>
+    <button class="btn btn-sm ${isOpen ? '' : 'btn-primary'}" onclick="loadRepairs('closed')">
+      <i class="fa-solid fa-clock-rotate-left"></i> Repair history</button>`;
+
+  // The history is worth a headline: how many repairs, and what they cost.
+  // Repairs are the one thing here that spends money.
+  const t = data.totals || {};
+  const summary = (!isOpen && t.count)
+    ? `<div class="small muted" style="margin:10px 2px 0">
+         <b>${t.count}</b> repair${t.count === 1 ? '' : 's'} completed ·
+         <b>$${((t.cost_cents || 0) / 100).toFixed(2)}</b> total${
+           t.uncosted ? ` · ${t.uncosted} with no cost recorded` : ''}</div>`
+    : '';
 
   if (!data.rows.length) {
     el.innerHTML = `<div style="margin-bottom:12px">${tabs}</div>
       <div class="small muted" style="padding:20px;text-align:center">
-        ${s === 'open' ? 'Nothing is away for repair.' : 'No repair records yet.'}</div>`;
+        ${isOpen
+          ? 'Nothing is away for repair right now.'
+          : 'Nothing has come back from repair yet — this fills in as items are received.'}</div>`;
     return;
   }
 
-  const isOpen = s === 'open';
-  el.innerHTML = `<div style="margin-bottom:12px">${tabs}</div>
+  el.innerHTML = `<div style="margin-bottom:12px">${tabs}</div>${summary}
     <div style="overflow-x:auto"><table class="tbl">
     <thead><tr><th>Asset</th><th>Fault</th><th>Shop</th><th>Sent</th>
-      ${isOpen ? '<th>Expected</th>' : '<th>Outcome</th><th>Cost</th>'}<th></th></tr></thead>
+      ${isOpen
+        ? '<th>Expected</th><th></th>'
+        : '<th>Back</th><th>Away</th><th>Outcome</th><th>Cost</th>'}</tr></thead>
     <tbody>${data.rows.map(r => {
       const days = r.days_out != null ? Math.floor(r.days_out) : null;
       return `<tr${r.overdue ? ' style="background:var(--redbg)"' : ''}>
         <td><b>${esc(r.asset_tag)}</b><div class="small muted">${esc(r.asset_title || r.title || '')}</div></td>
         <td class="small">${esc(r.reported_fault || '')}</td>
         <td class="small">${esc(r.shop_name || '—')}</td>
-        <td class="small">${fmtDate(r.sent_at)}${days != null ? `<div class="small muted">${days} day${days === 1 ? '' : 's'} out</div>` : ''}</td>
+        <td class="small">${fmtDate(r.sent_at)}${isOpen && days != null
+          ? `<div class="small muted">${days} day${days === 1 ? '' : 's'} out</div>` : ''}</td>
         ${isOpen
           ? `<td class="small">${r.expected_back ? fmtDate(r.expected_back) : '<span class="muted">—</span>'}
-             ${r.overdue ? '<div class="small" style="color:var(--red)">Overdue</div>' : ''}</td>`
-          : `<td class="small">${esc(OUTCOME_LABEL[r.outcome] || r.outcome || '—')}</td>
-             <td class="small mono">${r.cost_cents != null ? '$' + (r.cost_cents / 100).toFixed(2) : '—'}</td>`}
-        <td style="text-align:right;white-space:nowrap">
-          ${isOpen ? `<button class="btn btn-sm btn-success"
-             onclick="receiveFromRepair('${r.repair_id || r.id}','${esc(r.asset_tag)}')">
-             <i class="fa-solid fa-circle-check"></i> Received</button>` : ''}
-        </td></tr>`;
+             ${r.overdue ? '<div class="small" style="color:var(--red)">Overdue</div>' : ''}</td>
+             <td style="text-align:right;white-space:nowrap">
+               <button class="btn btn-sm btn-success"
+                 onclick="receiveFromRepair('${r.repair_id || r.id}','${esc(r.asset_tag)}')">
+                 <i class="fa-solid fa-circle-check"></i> Received</button></td>`
+          : `<td class="small">${r.returned_at ? fmtDate(r.returned_at) : '<span class="muted">—</span>'}
+             ${r.received_by_name ? `<div class="small muted">by ${esc(r.received_by_name)}</div>` : ''}</td>
+             <td class="small">${days != null ? `${days} day${days === 1 ? '' : 's'}` : '<span class="muted">—</span>'}</td>
+             <td class="small">${esc(OUTCOME_LABEL[r.outcome] || r.outcome || '—')}</td>
+             <td class="small mono">${r.cost_cents != null
+               ? '$' + (r.cost_cents / 100).toFixed(2)
+               : '<span class="muted">not recorded</span>'}</td>`}
+      </tr>`;
     }).join('')}</tbody></table></div>`;
 }
 
@@ -169,7 +196,7 @@ const OUTCOME_LABEL = {
   returned_unrepaired: 'Returned unrepaired',
 };
 
-// ── Shops admin ────────────────────────────────────────────────────────
+// ── Shops admin ────────────────────────────────────────────────
 async function loadRepairShops() {
   const el = document.getElementById('shops-table');
   if (!el) return;
