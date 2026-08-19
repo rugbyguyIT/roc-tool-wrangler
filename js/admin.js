@@ -11,7 +11,7 @@ let LOCATIONS = [];
 let SETTINGS = {};
 let lnDebounce = null;
 
-// ══ Dashboard ══════════════════════════════════════════════════
+// ══ Dashboard ════════════════════════════════════════════════
 async function loadDashboard() {
   const [open, assets, loanees, groups] = await Promise.all([
     api('/loans/open'), api('/assets?limit=1'), api('/loanees?limit=1'), api('/groups'),
@@ -45,7 +45,7 @@ async function loadDashboard() {
 // Loanee form + actions live in js/loanee-form.js, shared with the
 // dedicated Loanees page.
 
-// ══ Groups ═════════════════════════════════════════════════════
+// ══ Groups ═══════════════════════════════════════════════════
 async function loadGroups() {
   const { data, error } = await api('/groups');
   if (error) return;
@@ -167,17 +167,47 @@ async function removeMember(groupId, loaneeId) {
   groupMembers(groupId);
 }
 
-// ══ App users ══════════════════════════════════════════════════
+// ══ App users ════════════════════════════════════════════════
 // 'staff' is the stored value; 'Base' is what everyone at the grounds
 // calls it. Renaming the stored value would mean migrating the CHECK
 // constraint, every JWT in circulation and every route guard for a
 // wording change, so the mapping lives here instead.
 const ROLE_LABEL = { admin: 'Administrator', staff: 'Base', leader: 'Leadership' };
 
+let USER_Q = '';
+let USER_Q_TIMER = null;
+
+// Typing filters server-side rather than in the browser: with the roster
+// loaded this list is hundreds of accounts, and the search has to reach
+// member numbers and phone digits that aren't rendered in the table.
+function setUserSearch(v) {
+  USER_Q = v;
+  clearTimeout(USER_Q_TIMER);
+  USER_Q_TIMER = setTimeout(loadUsers, 220);
+}
+
 async function loadUsers() {
-  const { data, error } = await api('/users');
+  const qsParam = USER_Q.trim() ? `?q=${encodeURIComponent(USER_Q.trim())}` : '';
+  const { data, error } = await api('/users' + qsParam);
   if (error) return;
-  document.getElementById('users-table').innerHTML = `<div style="overflow-x:auto"><table class="tbl">
+
+  // Rebuilt on every keystroke, so the input is restored and refocused
+  // rather than being torn out from under the cursor.
+  const search = `<div class="form-group" style="margin-bottom:12px;max-width:360px">
+      <input class="form-input" id="user-q" type="search" value="${esc(USER_Q)}"
+             placeholder="Search name, email, member # or phone…"
+             oninput="setUserSearch(this.value)" />
+    </div>`;
+
+  if (!data.length) {
+    document.getElementById('users-table').innerHTML = search +
+      `<div class="small muted" style="padding:16px 2px">${USER_Q.trim()
+        ? `Nobody matches “${esc(USER_Q.trim())}”.`
+        : 'No app users yet.'}</div>`;
+    return restoreUserSearchFocus();
+  }
+
+  document.getElementById('users-table').innerHTML = search + `<div style="overflow-x:auto"><table class="tbl">
     <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Last signed in</th><th></th></tr></thead>
     <tbody>${data.map(u => `
       <tr${u.status === 'inactive' ? ' style="opacity:.55"' : ''}>
@@ -192,6 +222,16 @@ async function loadUsers() {
           ${u.id !== me.id ? `<button class="btn btn-sm btn-danger" onclick="toggleUser('${u.id}','${u.status}','${esc(u.full_name)}')" title="${u.status === 'active' ? 'Disable' : 'Enable'}"><i class="fa-solid fa-${u.status === 'active' ? 'user-slash' : 'user-check'}"></i></button>` : ''}
         </td>
       </tr>`).join('')}</tbody></table></div>`;
+  restoreUserSearchFocus();
+}
+
+// Put the caret back where it was. Without this, every debounced reload
+// drops focus and the next character goes nowhere.
+function restoreUserSearchFocus() {
+  const el = document.getElementById('user-q');
+  if (!el || !USER_Q) return;
+  el.focus();
+  el.setSelectionRange(el.value.length, el.value.length);
 }
 
 function userFields(u) {
@@ -219,21 +259,111 @@ function userFields(u) {
     </div>`;
 }
 
+// Most new accounts are for someone already on the roster, so the form
+// opens with a roster search rather than an empty set of name fields.
+// Picking someone fills the details and carries their member number
+// across — which is what stops the next roster sync creating a second
+// account beside the one you just made. Typing the fields by hand still
+// works for anyone who isn't on the roster at all.
 async function newUser() {
-  const form = await formModal('Add user', userFields() + `
+  const form = await formModal('Add user', `
+    <div class="form-group">
+      <label class="form-label">Find them on the roster</label>
+      <input class="form-input" id="nu-lookup" type="search" autocomplete="off"
+             placeholder="Search the roster by name, email or phone…" />
+      <div id="nu-results"></div>
+      <div class="small muted" style="margin-top:6px">
+        Optional — it just fills in the fields below. Skip it for anyone not on the roster.
+      </div>
+    </div>
+    <div id="nu-picked"></div>
+    <input type="hidden" name="member_number" id="nu-member-number" value="" />
+    <hr style="border:none;border-top:1px solid var(--border);margin:16px 0" />
+    ` + userFields() + `
     <div class="form-group"><label class="form-label">Temporary password *</label>
       <input class="form-input" name="password" type="text" required minlength="10"
              value="${suggestPassword()}" />
       <div class="small muted" style="margin-top:6px">
         At least 10 characters. Give it to them directly — they can change it after signing in.
+        Roster imports use the person's zip code, but the zip isn't stored afterwards,
+        so an account added here needs a password you choose.
       </div></div>`,
-    { icon: 'fa-user-plus', submitLabel: 'Create user' });
+    { icon: 'fa-user-plus', submitLabel: 'Create user', onMount: wireRosterPicker });
   if (!form) return;
   const v = formValues(form);
   const { error } = await api('/users', 'POST', v);
   if (error) return toastMsg('Could not create the user', error, 'error');
   toastMsg('User created', `${v.first_name} can sign in with ${v.email}.`, 'ok');
   loadUsers();
+}
+
+// Roster search inside the Add-user modal.
+function wireRosterPicker(ov) {
+  const input = ov.querySelector('#nu-lookup');
+  const out = ov.querySelector('#nu-results');
+  if (!input || !out) return;
+  let timer = null;
+
+  const render = (rows) => {
+    if (!rows.length) {
+      out.innerHTML = `<div class="small muted" style="padding:8px 2px">Nobody on the roster matches that.</div>`;
+      return;
+    }
+    out.innerHTML = `<div style="border:1px solid var(--border2);border-radius:9px;margin-top:6px;overflow:hidden">
+      ${rows.map((r, i) => `
+        <button type="button" class="nu-hit" data-i="${i}"
+          style="display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;
+                 cursor:pointer;font-family:inherit;border-top:${i ? '1px solid var(--border)' : '0'}">
+          <b>${esc(r.full_name)}</b>
+          <div class="small muted">${esc(r.email || 'no email on the roster')}${
+            r.sub_committee ? ' · ' + esc(r.sub_committee) : ''}</div>
+        </button>`).join('')}
+    </div>`;
+    out.querySelectorAll('.nu-hit').forEach(b => {
+      b.addEventListener('click', () => pick(rows[Number(b.dataset.i)]));
+    });
+  };
+
+  const pick = (r) => {
+    const set = (name, val) => {
+      const el = ov.querySelector(`[name="${name}"]`);
+      if (el) el.value = val || '';
+    };
+    set('first_name', r.first_name);
+    set('last_name', r.last_name);
+    set('email', r.email);
+    set('phone_mobile', r.phone_mobile);
+    const mn = ov.querySelector('#nu-member-number');
+    if (mn) mn.value = r.member_number || '';
+
+    out.innerHTML = '';
+    input.value = '';
+    ov.querySelector('#nu-picked').innerHTML =
+      `<div class="small" style="padding:8px 10px;border-radius:9px;background:var(--orangeglow);
+             border:1px solid rgba(239,118,34,0.30)">
+         <i class="fa-solid fa-circle-check"></i> Filled in from the roster: <b>${esc(r.full_name)}</b>${
+           r.member_number ? ` · member #${esc(r.member_number)}` : ''}
+         ${r.email ? '' : '<div class="small" style="color:var(--red);margin-top:4px">'
+           + 'No email on the roster — they can\'t sign in without one, so add it below.</div>'}
+       </div>`;
+    // Role is deliberately NOT set from the roster. Being a chairman on
+    // the roster says what someone does at the grounds, not what they
+    // should be allowed to do in here.
+    ov.querySelector('[name="role"]')?.focus();
+  };
+
+  input.addEventListener('input', () => {
+    const q = input.value.trim();
+    clearTimeout(timer);
+    if (q.length < 2) { out.innerHTML = ''; return; }
+    timer = setTimeout(async () => {
+      const { data, error } = await api(`/loanees/lookup?q=${encodeURIComponent(q)}`);
+      if (error) { out.innerHTML = `<div class="small" style="color:var(--red);padding:8px 2px">${esc(error)}</div>`; return; }
+      render(data.matches || []);
+    }, 220);
+  });
+  // Enter in the search box must not submit the half-filled form.
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
 }
 
 // Memorable but not guessable: three words plus digits beats a random
@@ -304,7 +434,7 @@ async function changeMyPassword() {
   setTimeout(signOut, 1500);
 }
 
-// ══ Lookups ════════════════════════════════════════════════════
+// ══ Lookups ══════════════════════════════════════════════════
 function lookupPanel(kind, title, icon, rows) {
   return `<div class="card card-sm">
     <div style="display:flex;justify-content:space-between;align-items:center">
@@ -373,7 +503,7 @@ async function deleteLookup(kind, id, name) {
   loadLookups();
 }
 
-// ══ Settings ═══════════════════════════════════════════════════
+// ══ Settings ════════════════════════════════════════════════
 async function loadSettings() {
   const el = document.getElementById('settings-panel');
   const { data, error } = await api('/settings');
@@ -449,7 +579,7 @@ async function saveSettings() {
   loadSettings();
 }
 
-// ══ Logs ═══════════════════════════════════════════════════════
+// ══ Logs ═════════════════════════════════════════════════════
 let logTab = 'audit';
 function setLogTab(t) {
   logTab = t;
@@ -528,7 +658,7 @@ async function downloadImportErrors(batchId) {
   ]);
 }
 
-// ══ Boot ═══════════════════════════════════════════════════════
+// ══ Boot ═════════════════════════════════════════════════════
 (async function init() {
   if (!me) return;
 
