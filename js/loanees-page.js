@@ -1,4 +1,4 @@
-// ═══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 // Loanees — the whole roster, on its own page.
 //
 // 493 people is too many for a section buried in the admin console, and
@@ -8,7 +8,7 @@
 //
 // The form and the row actions come from js/loanee-form.js, shared with
 // the admin console, so a loanee record has one definition.
-// ═══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 const me = requireLogin('staff', 'admin');
 
 const PAGE_SIZES = [25, 50, 100, 250, 500];
@@ -22,7 +22,13 @@ let LN = { q: '', groupId: '', status: 'active', limit: 25, offset: 0, total: 0,
            ...DEFAULT_SORT,
            // Distinguishes "this is just the default" from "the reader
            // chose this", which is what decides whether Clear is offered.
-           sorted: false };
+           sorted: false,
+           // Ticked committees. Empty means every committee, which is not
+           // the same as "all of them ticked" — the roster gains committees
+           // between page loads, and an explicit list would silently stop
+           // including the new ones.
+           committees: [] };
+let COMMITTEES = null;   // [{name, n}] — loaded once, refreshed with status
 let GROUPS = [];
 
 // Selection survives paging: tick five people, go to page 2, tick five
@@ -38,10 +44,117 @@ const COLUMNS = [
   { key: 'email',         label: 'Email' },
   { key: 'phone_mobile',  label: 'Phone' },
   { key: 'title',         label: 'Title' },
-  { key: 'sub_committee', label: 'Committee' },
+  { key: 'sub_committee', label: 'Committee', filter: 'committees' },
   { key: null,            label: 'Groups' },
-  { key: null,            label: 'Out' },
+  // No "Out" column. What is out is a question about equipment, and it is
+  // answered on the Out Now board and the asset list. Repeating a count
+  // here invited reading this page as a custody screen, which it isn't.
 ];
+
+// ── Excel-style column filter (Committee) ──────────────────────────────
+// A funnel on the column header opens a tick list of every committee on
+// the roster, with counts. Nothing ticked means everything, so the funnel
+// is only "on" when a real subset is chosen.
+
+function filterButton(c) {
+  const on = LN.committees.length > 0;
+  return ` <button type="button" class="th-filter${on ? ' is-on' : ''}"
+    onclick="openCommitteeFilter(event)"
+    title="${on ? `Filtered to ${LN.committees.length} committee(s)` : 'Filter by committee'}">
+    <i class="fa-solid fa-filter"></i>${on ? `<span>${LN.committees.length}</span>` : ''}</button>`;
+}
+
+async function loadCommittees(force) {
+  if (COMMITTEES && !force) return COMMITTEES;
+  const { data, error } = await api(`/loanees/committees?status=${encodeURIComponent(LN.status)}`);
+  if (error) { toastMsg('Could not load committees', error, 'error'); return []; }
+  COMMITTEES = data.rows || [];
+  return COMMITTEES;
+}
+
+async function openCommitteeFilter(ev) {
+  ev.stopPropagation();
+  closeCommitteeFilter();
+  const anchor = ev.currentTarget;
+  const list = await loadCommittees();
+
+  // Working copy: nothing changes until Apply, so ticking through a long
+  // list doesn't fire a query per tick.
+  const draft = new Set(LN.committees);
+
+  const panel = document.createElement('div');
+  panel.className = 'col-filter';
+  panel.id = 'col-filter';
+  panel.innerHTML = `
+    <div class="col-filter-head">
+      <input class="form-input" id="cf-search" type="search" placeholder="Search committees…" />
+    </div>
+    <label class="col-filter-all">
+      <input type="checkbox" id="cf-all" ${draft.size === 0 ? 'checked' : ''} />
+      <b>(All committees)</b>
+    </label>
+    <div class="col-filter-list" id="cf-list">
+      ${list.map((r, i) => `
+        <label class="col-filter-row" data-name="${esc((r.name || '').toLowerCase())}">
+          <input type="checkbox" data-i="${i}" ${draft.has(r.name) ? 'checked' : ''} />
+          <span>${r.name ? esc(r.name) : '<i>(no committee)</i>'}</span>
+          <span class="muted small">${r.n}</span>
+        </label>`).join('') || '<div class="small muted" style="padding:8px">No committees yet.</div>'}
+    </div>
+    <div class="col-filter-foot">
+      <button type="button" class="btn btn-sm" id="cf-clear">Clear</button>
+      <div style="flex:1"></div>
+      <button type="button" class="btn btn-sm" id="cf-cancel">Cancel</button>
+      <button type="button" class="btn btn-sm btn-primary" id="cf-apply">Apply</button>
+    </div>`;
+
+  document.body.appendChild(panel);
+  const r = anchor.getBoundingClientRect();
+  // Kept inside the viewport: this column sits near the right edge on a
+  // laptop, and a panel hanging off the screen cannot be scrolled to.
+  const width = 260;
+  panel.style.top = `${window.scrollY + r.bottom + 6}px`;
+  panel.style.left = `${Math.max(8, Math.min(window.scrollX + r.left, window.scrollX + window.innerWidth - width - 12))}px`;
+
+  const boxes = () => [...panel.querySelectorAll('#cf-list input[type=checkbox]')];
+  const syncAll = () => {
+    panel.querySelector('#cf-all').checked = boxes().every(b => !b.checked);
+  };
+
+  panel.querySelector('#cf-all').addEventListener('change', (e) => {
+    if (e.target.checked) boxes().forEach(b => { b.checked = false; });
+    else e.target.checked = true;   // untick "(All)" only by ticking something
+  });
+  boxes().forEach(b => b.addEventListener('change', syncAll));
+
+  panel.querySelector('#cf-search').addEventListener('input', (e) => {
+    const s = e.target.value.trim().toLowerCase();
+    panel.querySelectorAll('.col-filter-row').forEach(row => {
+      row.style.display = !s || row.dataset.name.includes(s) ? '' : 'none';
+    });
+  });
+
+  panel.querySelector('#cf-cancel').addEventListener('click', closeCommitteeFilter);
+  panel.querySelector('#cf-clear').addEventListener('click', () => {
+    LN.committees = []; LN.offset = 0; closeCommitteeFilter(); loadLoanees();
+  });
+  panel.querySelector('#cf-apply').addEventListener('click', () => {
+    LN.committees = boxes().filter(b => b.checked).map(b => list[Number(b.dataset.i)].name);
+    LN.offset = 0;
+    closeCommitteeFilter();
+    loadLoanees();
+  });
+
+  panel.addEventListener('click', e => e.stopPropagation());
+  setTimeout(() => {
+    document.addEventListener('click', closeCommitteeFilter, { once: true });
+    panel.querySelector('#cf-search')?.focus();
+  }, 0);
+}
+
+function closeCommitteeFilter() {
+  document.getElementById('col-filter')?.remove();
+}
 
 async function loadGroups() {
   const { data } = await api('/groups');
@@ -64,6 +177,10 @@ async function loadLoanees() {
   });
   if (LN.q) p.set('q', LN.q);
   if (LN.groupId) p.set('group_id', LN.groupId);
+  // Repeated key, one per ticked committee. None ticked = no filter at all.
+  // The people with no committee are asked for by name, because an empty
+  // value on the wire is indistinguishable from an untouched control.
+  LN.committees.forEach(c => p.append('sub_committee', c === '' ? '__none__' : c));
 
   const { data, error } = await api(`/loanees?${p.toString()}`);
   if (error) { el.innerHTML = `<div class="small" style="color:var(--red)">${esc(error)}</div>`; return; }
@@ -73,7 +190,7 @@ async function loadLoanees() {
 
   if (!rows.length) {
     el.innerHTML = `<div class="small muted" style="padding:28px;text-align:center">
-      ${LN.q || LN.groupId
+      ${LN.q || LN.groupId || LN.committees.length
         ? 'Nobody matches that. Clear the filters to see everyone.'
         : 'No loanees yet. Sync the roster to load them all in one go.'}</div>`;
     renderPager();
@@ -92,7 +209,8 @@ async function loadLoanees() {
     if (!c.key) return `<th>${c.label}</th>`;
     const active = LN.sort === c.key;
     return `<th class="th-sortable${active ? ' is-sorted' : ''}">
-      <div class="th-label">${c.label}${active ? (LN.dir === 'asc' ? ' ▲' : ' ▼') : ''}</div>
+      <div class="th-label">${c.label}${active ? (LN.dir === 'asc' ? ' ▲' : ' ▼') : ''}${
+        c.filter ? filterButton(c) : ''}</div>
       <select class="th-select" onchange="setSort('${c.key}', this.value)"
               title="Sort by ${c.label}">
         <option value=""${active ? '' : ' selected'}>Sort…</option>
@@ -124,7 +242,6 @@ async function loadLoanees() {
         <td class="small">${esc(l.sub_committee || '—')}</td>
         <td class="small">${(l.group_names || []).map(g =>
           `<span class="class-chip class-exec">${esc(g)}</span>`).join(' ') || '<span class="muted">—</span>'}</td>
-        <td>${l.items_out ? `<span class="badge badge-active">${l.items_out}</span>` : ''}</td>
         <td style="text-align:right;white-space:nowrap">
           <button class="btn btn-sm" onclick="editLoanee('${l.id}')" title="Edit"><i class="fa-solid fa-pen"></i></button>
           <button class="btn btn-sm" onclick="loaneeGroups('${l.id}')" title="Groups"><i class="fa-solid fa-user-lock"></i></button>
@@ -153,9 +270,14 @@ function renderPager() {
         ${LN.total ? `Showing <b>${from}–${to}</b> of <b>${LN.total}</b>` : 'Nothing to show'}
         ${pages > 1 ? ` · page ${page} of ${pages}` : ''}
       </div>
-      ${LN.sorted ? `<button class="btn btn-sm" onclick="clearSort()">
+      <!-- Always present, disabled when there is nothing to clear. Showing
+           it only once a non-default sort was chosen meant the control you
+           needed was the one control that wasn't there — you had to already
+           know it existed to go looking for it. -->
+      <button class="btn btn-sm" ${LN.sorted ? '' : 'disabled'} onclick="clearSort()"
+        title="Back to last name, then first">
         <i class="fa-solid fa-xmark"></i> Clear sorting</button>
-        <span class="small muted">back to last name, then first</span>` : ''}
+      ${LN.sorted ? '<span class="small muted">back to last name, then first</span>' : ''}
       <div style="flex:1"></div>
       <div class="small muted">Per page</div>
       <select class="form-input" style="width:auto;padding:6px 10px" onchange="setPageSize(this.value)">
@@ -186,7 +308,7 @@ function setPageSize(n) {
   loadLoanees();
 }
 
-// ── Sorting ────────────────────────────────────────────────────────────
+// ── Sorting ───────────────────────────────────────────────────────
 // The direction is chosen explicitly, so there is no hidden toggle state.
 // Clearing the active column's select falls back to last name ascending
 // rather than leaving the list in an undefined order.
@@ -211,7 +333,7 @@ function clearSort() {
   loadLoanees();
 }
 
-// ── Selection ──────────────────────────────────────────────────────────
+// ── Selection ─────────────────────────────────────────────────────
 function rowTick(ev, index, id) {
   // Shift extends from the last row you ticked, exactly like a file list.
   if (ev.shiftKey && LAST_CLICKED !== null) {
@@ -274,7 +396,7 @@ async function deleteSelected() {
   loadLoanees();
 }
 
-// ── Clear roster ───────────────────────────────────────────────────────
+// ── Clear roster ─────────────────────────────────────────────────
 function clearRoster() {
   formModal('Clear the entire roster', `
     <div class="card card-sm" style="border-left:3px solid var(--red);margin-bottom:14px">
@@ -310,10 +432,13 @@ function clearRoster() {
 function setStatusFilter(v) {
   LN.status = v;
   LN.offset = 0;
+  // The committee counts are per status, so they are now stale. Drop the
+  // cache rather than showing active-roster counts over the inactive list.
+  COMMITTEES = null;
   loadLoanees();
 }
 
-// ── Boot ───────────────────────────────────────────────────────────────
+// ── Boot ───────────────────────────────────────────────────────
 (async function () {
   brandPage();
 
