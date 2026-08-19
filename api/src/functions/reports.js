@@ -24,7 +24,7 @@ function limitOf(p, def = 2000) {
   return Math.min(parseInt(p.get('limit') || String(def), 10) || def, MAX_ROWS);
 }
 
-// ── Currently out ──────────────────────────────────────────────
+// ── Currently out ────────────────────────────────────────
 app.http('reportOutNow', {
   methods: ['GET'], authLevel: 'anonymous', route: 'reports/out-now',
   handler: async (request) => {
@@ -44,7 +44,7 @@ app.http('reportOutNow', {
   },
 });
 
-// ── Overdue ────────────────────────────────────────────────────
+// ── Overdue ────────────────────────────────────────────
 // Grace is read from settings rather than hardcoded, so "we don't chase
 // anything under an hour late" is a setting change, not a deploy.
 app.http('reportOverdue', {
@@ -105,7 +105,16 @@ app.http('reportByLoanee', {
          AND ($4::uuid IS NULL OR EXISTS (SELECT 1 FROM public.group_members gm
                                           WHERE gm.loanee_id = ln.id AND gm.group_id = $4))
          AND ($5::text IS NULL OR ln.sub_committee = $5)
-       ORDER BY ln.full_name, li.checked_out_at DESC
+       -- Chronological, not alphabetical. This is the report the Reports
+       -- page opens on, and "who borrowed what, most recently" is the
+       -- question it answers; sorting by name buried the newest activity
+       -- somewhere under the letter M.
+       --
+       -- Returned rows lead. Items still out are by definition the newest
+       -- checkouts, so a plain date sort would fill page one with exactly
+       -- the rows already on Out Now and on the board. They are still in
+       -- the report, at the end, flagged "Still out".
+       ORDER BY (li.checked_in_at IS NULL), li.checked_out_at DESC
        LIMIT $6`,
       [uuidOrNull(p.get('loanee_id')), from, to,
        uuidOrNull(p.get('group_id')), p.get('sub_committee') || null, limitOf(p)]);
@@ -174,7 +183,7 @@ app.http('reportInventory', {
   },
 });
 
-// ── Activity log ───────────────────────────────────────────────
+// ── Activity log ────────────────────────────────────────
 app.http('reportActivity', {
   methods: ['GET'], authLevel: 'anonymous', route: 'reports/activity',
   handler: async (request) => {
