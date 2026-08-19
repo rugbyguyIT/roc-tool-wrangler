@@ -2,6 +2,7 @@
 // HLSR Asset Tracker — loanees (the people who borrow; they never log in)
 //   GET    /api/loanees              any signed-in role
 //   GET    /api/loanees/lookup?q=    any  (powers the picker)
+//   GET    /api/loanees/committees   any  (the column filter's tick list)
 //   GET    /api/loanees/{id}         any
 //   GET    /api/loanees/{id}/history any
 //   POST   /api/loanees              admin
@@ -35,7 +36,21 @@ app.http('loaneesList', {
     const p = qs(request);
     const q = (p.get('q') || '').trim();
     const groupId = uuidOrNull(p.get('group_id'));
-    const sub = p.get('sub_committee');
+    // Committee arrives as a repeated parameter (?sub_committee=A&sub_committee=B)
+    // so the Excel-style tick list can pass any subset. No values means no
+    // filter, which is what "(All)" sends — deliberately not the same as
+    // sending all of them, because the roster grows between page loads.
+    //
+    // '__none__' is how you ask for the people with no committee at all.
+    // A bare empty value cannot mean that: an empty string is what an
+    // untouched form control sends, and reading it as a filter would make
+    // the list mysteriously go blank.
+    const subs = [];
+    for (const raw of p.getAll('sub_committee')) {
+      if (raw === '__none__') { subs.push(''); continue; }
+      const s = String(raw).trim();
+      if (s) subs.push(s);
+    }
     const st = ['active', 'inactive'].includes(p.get('status')) ? p.get('status') : 'active';
     // Whitelist, not interpolation: `sort` reaches SQL as a key into a
     // fixed map, so a crafted value can only ever miss and fall back.
@@ -66,8 +81,9 @@ app.http('loaneesList', {
              OR ln.sub_committee ILIKE '%'||$2||'%' OR ln.phone_mobile LIKE '%'||$2||'%')
         AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM public.group_members gm
                                          WHERE gm.loanee_id = ln.id AND gm.group_id = $3))
-        AND ($4::text IS NULL OR ln.sub_committee = $4)`;
-    const params = [st, q || null, groupId, sub || null];
+        AND ($4::text[] IS NULL
+             OR coalesce(nullif(btrim(ln.sub_committee), ''), '') = ANY($4))`;
+    const params = [st, q || null, groupId, subs.length ? subs : null];
 
     const rows = await query(
       `SELECT ln.*,
@@ -114,11 +130,48 @@ app.http('loaneesLookup', {
             OR ( regexp_replace($1, '\\D', '', 'g') <> ''
                  AND regexp_replace(coalesce(ln.phone_mobile,''), '\\D', '', 'g')
                      LIKE '%'||regexp_replace($1, '\\D', '', 'g')||'%' ) )
-       ORDER BY is_exact DESC, similarity(ln.full_name, $1) DESC, ln.last_name
+       -- Ranked with plain ILIKE rather than similarity(). similarity()
+       -- comes from pg_trgm, which is an Azure allow-list setting that can
+       -- be lost when the server is rebuilt; when it goes, this function
+       -- raises 42883 and the whole check-out counter answers 500 while
+       -- every other screen keeps working. Relevance is not worth a hard
+       -- dependency on an extension being present. Booleans sort false
+       -- first, so DESC puts the matches at the top.
+       ORDER BY is_exact DESC,
+                (ln.last_name ILIKE $1||'%') DESC,
+                (ln.full_name ILIKE $1||'%') DESC,
+                ln.last_name
        LIMIT 10`, [q]);
 
     const exact = r.rows.find(x => x.is_exact) || null;
     return json({ exact, matches: r.rows });
+  },
+});
+
+// The tick list behind the Committee column filter. Registered above
+// loanees/{id} because a literal segment has to win against the template.
+//
+// Counts are for the CURRENT status filter only, not the current committee
+// selection — a filter panel whose own options disappear as you tick them
+// is impossible to widen again without clearing it first.
+app.http('loaneesCommittees', {
+  methods: ['GET'], authLevel: 'anonymous', route: 'loanees/committees',
+  handler: async (request) => {
+    const { error, status } = await requireAuth(request);
+    if (error) return err(error, status);
+    const st = ['active', 'inactive'].includes(qs(request).get('status'))
+      ? qs(request).get('status') : 'active';
+    const r = await query(
+      `SELECT coalesce(nullif(btrim(sub_committee), ''), '') AS name, count(*)::int AS n
+       FROM public.loanees
+       WHERE status = $1
+       GROUP BY 1
+       -- The expression is repeated rather than reusing the "name" alias:
+       -- an output alias is only a bare column reference in ORDER BY, so
+       -- "(name = '')" is a missing-column error, not a sort key.
+       ORDER BY (coalesce(nullif(btrim(sub_committee), ''), '') = '') ASC,
+                coalesce(nullif(btrim(sub_committee), ''), '')`, [st]);
+    return json({ rows: r.rows });
   },
 });
 
