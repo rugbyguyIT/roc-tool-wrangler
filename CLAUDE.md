@@ -67,6 +67,12 @@ comment banners, so **always verify by comparing `git hash-object` against
 the blob SHA GitHub returns**, and reconstruct locally until the hash matches
 before pushing.
 
+Base64 payloads drift too, and there the damage is invisible: one wrong
+character 9,823 bytes into `css/watermark.css` produced a PNG that no
+decoder would open. Keep inlined binaries as small as the job allows —
+fewer bytes is less surface for a bad character to land on — and decode
+the deployed copy to prove it, not just diff it.
+
 ## A literal route under an `{id}` template is a live hazard
 
 `GET /api/loans/open` matches both `loans/open` and `loans/{id}`, and the
@@ -98,7 +104,7 @@ invokes the `{id}` handlers directly with the literal segment instead.
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/smoke.js    # 131
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/roster.js   #  47
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/repairs.js  #  38
-DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/users.js    #  30
+DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/users.js    #  50
 DATABASE_URL=... JWT_SECRET=test node api/test/routing.js                        #  11
 node api/test/routes-audit.js    # every mutating route has a role gate
 ```
@@ -112,6 +118,41 @@ initdb -D /tmp/pgdata -A trust && pg_ctl -D /tmp/pgdata -o '-p 5433' start
 createdb -p 5433 hlsrtest
 for f in api/migrations/*.sql; do psql "postgresql://postgres@127.0.0.1:5433/hlsrtest" -q -f "$f"; done
 ```
+
+`api/test/devserver.js` serves the static site and routes `/api/*` to the
+real handlers, so the front end can be driven in a browser. It loads the
+function modules once at boot — **restart it after editing anything under
+`api/src/`**, or you will be testing the old code and believe the new code
+is broken.
+
+## Never send a placeholder through `push_files`
+
+A commit went out with the literal string `PLACEHOLDER` as the body of
+`api/src/functions/repairs.js`. Every function in an Azure Functions app
+loads from one host, so a module that throws at load time does not break
+one route — **the whole API returned 404 for about a minute**, health
+check included.
+
+`push_files` writes straight to `main`, which deploys straight to
+production. There is no staging step and no review. So:
+
+- assemble the real file content before opening the tool call, never a
+  stand-in you intend to fill in
+- after every push of a `.js` file under `api/`, fetch the deployed copy
+  back and parse it (`git show origin/main:<path>` → `new vm.Script(...)`)
+  before moving on
+- if the API ever answers **404 on every route including `/api/health`**,
+  that is this failure mode, not a routing bug. Look at what the last
+  commit did to a file under `api/src/`.
+
+## Two numbers beat one when a screen is empty
+
+`/api/health` reports categories and locations as **both** active and
+total counts. An empty dropdown has two possible causes — no rows, or
+rows that are all inactive — and the pickers only request the active
+ones, so a single total cannot tell them apart. The same reasoning is
+why the asset form now names which of three things went wrong instead of
+just rendering nothing.
 
 ## Diagnose from the app's own logs before theorising
 
