@@ -8,6 +8,27 @@
 //   · renderTopNav()   role-aware nav for pages that don't hardcode it
 // ─────────────────────────────────────────────────────────────
 
+// ── Shared stylesheets ───────────────────────────────────
+// Linked from here rather than from six separate <head>s. This file owns
+// the column filter and the page watermark, so it owns their styles too —
+// and a stylesheet each page has to remember to link is one that a page
+// will eventually forget. admin.html had already missed column-filter.css,
+// which is exactly how the Role filter would have shipped unstyled.
+(function injectSharedStyles() {
+  // APP_VERSION is a const in config.js, so it is a global binding but not
+  // a property of window — `window.APP_VERSION` would be undefined here.
+  const v = typeof APP_VERSION !== 'undefined' ? APP_VERSION : '';
+  for (const href of ['/css/column-filter.css', '/css/watermark.css']) {
+    // Prefix match, so a page that already links it with its own ?v= is
+    // left alone rather than loading the same sheet twice.
+    if (document.querySelector(`link[href^="${href}"]`)) continue;
+    const l = document.createElement('link');
+    l.rel = 'stylesheet';
+    l.href = v ? `${href}?v=${encodeURIComponent(v)}` : href;
+    document.head.appendChild(l);
+  }
+})();
+
 // Single source of truth for status appearance. Add a status here and
 // every screen picks it up.
 const STATUS_META = {
@@ -288,7 +309,121 @@ function formValues(form) {
   return o;
 }
 
-// ── Shared top nav ─────────────────────────────────────────────
+// ── Excel-style column filter ──────────────────────────────────
+// A funnel on a column header opens a tick list of every value in that
+// column, with counts. Nothing ticked means everything, so the funnel only
+// reads as "on" when a real subset is chosen.
+//
+// Shared because the Loanees committee filter and the App Users role filter
+// are the same control over different data. Two copies would drift, and the
+// half that drifts is always the one nobody is looking at.
+
+// `onclick` is passed as an expression string because the header is built as
+// HTML and re-rendered on every load; a bound listener would be thrown away
+// with the markup it was attached to.
+function columnFilterButton(onclickExpr, activeCount, offTitle) {
+  const on = activeCount > 0;
+  return ` <button type="button" class="th-filter${on ? ' is-on' : ''}"
+    onclick="${onclickExpr}"
+    title="${on ? `Filtered to ${activeCount} of them` : esc(offTitle || 'Filter this column')}">
+    <i class="fa-solid fa-filter"></i>${on ? `<span>${activeCount}</span>` : ''}</button>`;
+}
+
+function closeColumnFilter() {
+  document.getElementById('col-filter')?.remove();
+}
+
+// opts = {
+//   items:    [{ value, label, n }]   — value '' is allowed and means "blank"
+//   selected: array of currently-ticked values
+//   placeholder, allLabel
+//   onApply(values), onClear()
+// }
+function openColumnFilter(ev, opts) {
+  ev.stopPropagation();
+  closeColumnFilter();
+  const anchor = ev.currentTarget;
+  const list = opts.items || [];
+
+  // Working copy: nothing changes until Apply, so ticking through a long
+  // list doesn't fire a query per tick.
+  const draft = new Set(opts.selected || []);
+
+  const panel = document.createElement('div');
+  panel.className = 'col-filter';
+  panel.id = 'col-filter';
+  panel.innerHTML = `
+    <div class="col-filter-head">
+      <input class="form-input" id="cf-search" type="search"
+             placeholder="${esc(opts.placeholder || 'Search…')}" />
+    </div>
+    <label class="col-filter-all">
+      <input type="checkbox" id="cf-all" ${draft.size === 0 ? 'checked' : ''} />
+      <b>${esc(opts.allLabel || '(All)')}</b>
+    </label>
+    <div class="col-filter-list" id="cf-list">
+      ${list.map((r, i) => `
+        <label class="col-filter-row" data-name="${esc(String(r.label || '').toLowerCase())}">
+          <input type="checkbox" data-i="${i}" ${draft.has(r.value) ? 'checked' : ''} />
+          <span>${r.label ? esc(r.label) : '<i>(blank)</i>'}</span>
+          <span class="muted small">${r.n}</span>
+        </label>`).join('') || '<div class="small muted" style="padding:8px">Nothing to filter by yet.</div>'}
+    </div>
+    <div class="col-filter-foot">
+      <button type="button" class="btn btn-sm" id="cf-clear">Clear</button>
+      <div style="flex:1"></div>
+      <button type="button" class="btn btn-sm" id="cf-cancel">Cancel</button>
+      <button type="button" class="btn btn-sm btn-primary" id="cf-apply">Apply</button>
+    </div>`;
+
+  document.body.appendChild(panel);
+  const r = anchor.getBoundingClientRect();
+  // Kept inside the viewport: these columns sit near the right edge on a
+  // laptop, and a panel hanging off the screen cannot be scrolled to.
+  const width = 260;
+  panel.style.top = `${window.scrollY + r.bottom + 6}px`;
+  panel.style.left = `${Math.max(8, Math.min(window.scrollX + r.left, window.scrollX + window.innerWidth - width - 12))}px`;
+
+  const boxes = () => [...panel.querySelectorAll('#cf-list input[type=checkbox]')];
+  const syncAll = () => {
+    panel.querySelector('#cf-all').checked = boxes().every(b => !b.checked);
+  };
+
+  panel.querySelector('#cf-all').addEventListener('change', (e) => {
+    if (e.target.checked) boxes().forEach(b => { b.checked = false; });
+    else e.target.checked = true;   // untick "(All)" only by ticking something
+  });
+  boxes().forEach(b => b.addEventListener('change', syncAll));
+
+  panel.querySelector('#cf-search').addEventListener('input', (e) => {
+    const s = e.target.value.trim().toLowerCase();
+    panel.querySelectorAll('.col-filter-row').forEach(row => {
+      row.style.display = !s || row.dataset.name.includes(s) ? '' : 'none';
+    });
+  });
+
+  panel.querySelector('#cf-cancel').addEventListener('click', closeColumnFilter);
+  panel.querySelector('#cf-clear').addEventListener('click', () => {
+    closeColumnFilter();
+    (opts.onClear || (() => opts.onApply([])))();
+  });
+  panel.querySelector('#cf-apply').addEventListener('click', () => {
+    // Read from the DOM rather than the draft Set so a value hidden by the
+    // search box keeps whatever state it had — searching is a way to find a
+    // tick, never a way to silently drop one.
+    const values = boxes().filter(b => b.checked).map(b => list[Number(b.dataset.i)].value);
+    closeColumnFilter();
+    opts.onApply(values);
+  });
+
+  panel.addEventListener('click', e => e.stopPropagation());
+  setTimeout(() => {
+    document.addEventListener('click', closeColumnFilter, { once: true });
+    panel.querySelector('#cf-search')?.focus();
+  }, 0);
+}
+
+// ── Shared top nav ──────────────────────────────────────────
 // Fills any EMPTY .topnav-links with the right links for the signed-in
 // role, so the menu persists as you move between pages. admin.html
 // hardcodes its own (its tabs are in-page view switches, not URLs), and
