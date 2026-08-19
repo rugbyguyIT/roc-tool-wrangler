@@ -67,11 +67,57 @@ comment banners, so **always verify by comparing `git hash-object` against
 the blob SHA GitHub returns**, and reconstruct locally until the hash matches
 before pushing.
 
+## A literal route under an `{id}` template is a live hazard
+
+`GET /api/loans/open` matches both `loans/open` and `loans/{id}`, and the
+Functions host **does not reliably prefer the literal** — in production the
+template won, `loansGet` got `id="open"`, and Postgres answered *invalid
+input syntax for type uuid*. The counter and the leader board both 500'd
+while every other page worked, which made it look like a search bug. The
+same collision existed on `loanees/lookup`, `loanees/committees` and
+`assets/lookup`.
+
+**Never rely on route precedence.** When a literal sits under a template:
+
+1. Write the literal's logic as a plain named function.
+2. Register the literal with that function as its handler.
+3. Have the `{id}` handler check for the literal first and call the same
+   function.
+4. Have the `{id}` handler answer **404 for any non-UUID id**, so a bad
+   path can never reach Postgres and become a 500 with a database error
+   in the body.
+
+`api/test/routing.js` holds this. The other suites structurally cannot:
+their harness resolves a URL by taking the first matching registered route,
+and the literal is registered first, so it always wins there. That suite
+invokes the `{id}` handlers directly with the literal segment instead.
+
 ## Testing
 
 ```bash
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/smoke.js    # 131
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/roster.js   #  47
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/repairs.js  #  38
+DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/users.js    #  30
+DATABASE_URL=... JWT_SECRET=test node api/test/routing.js                        #  11
 node api/test/routes-audit.js    # every mutating route has a role gate
 ```
+
+`routing.js` reads only and needs an active admin present, so run it after
+`smoke.js`. A local Postgres is enough for all of them:
+
+```bash
+apt-get install -y postgresql
+initdb -D /tmp/pgdata -A trust && pg_ctl -D /tmp/pgdata -o '-p 5433' start
+createdb -p 5433 hlsrtest
+for f in api/migrations/*.sql; do psql "postgresql://postgres@127.0.0.1:5433/hlsrtest" -q -f "$f"; done
+```
+
+## Diagnose from the app's own logs before theorising
+
+The 500 above was diagnosed twice. The first diagnosis — a missing
+`pg_trgm` extension — was reproducible in a local lab and completely wrong
+about production. The actual cause was sitting in Admin → Logs → Errors the
+whole time, one line, naming the function and the bad value. **Ask for the
+logged error first.** A cause you can reproduce is not the same as the
+cause that is happening.
