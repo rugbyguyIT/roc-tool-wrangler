@@ -36,14 +36,32 @@ app.http('usersList', {
     const p = qs(request);
     const role = p.get('role');
     const st = p.get('status');
+    const q = (p.get('q') || '').trim();
+
+    // Digits are passed separately so a purely alphabetic search never
+    // reaches the phone clause. Deriving them inside SQL would turn a
+    // search for "kyle" into LIKE '%%', which matches every row.
+    const digits = q.replace(/\D/g, '');
+
     const r = await query(
       `SELECT id, email, first_name, last_name, full_name, phone_mobile, role, photo_url,
-              status, last_login_at, created_at
+              status, member_number, last_login_at, created_at
        FROM public.profiles
        WHERE ($1::text IS NULL OR role = $1)
          AND ($2::text IS NULL OR status = $2)
+         AND ($3::text IS NULL OR (
+                  full_name     ILIKE '%'||$3||'%'
+               OR email         ILIKE '%'||$3||'%'
+               OR last_name     ILIKE $3||'%'
+               OR coalesce(member_number,'') ILIKE $3||'%'
+               OR ($4::text <> '' AND regexp_replace(coalesce(phone_mobile,''), '\\D', '', 'g')
+                                      LIKE '%'||$4||'%')
+             ))
        ORDER BY CASE role WHEN 'admin' THEN 1 WHEN 'staff' THEN 2 ELSE 3 END, last_name, first_name`,
-      [ROLES.includes(role) ? role : null, ['active', 'inactive'].includes(st) ? st : null]
+      [ROLES.includes(role) ? role : null,
+       ['active', 'inactive'].includes(st) ? st : null,
+       q || null,
+       digits]
     );
     return json(r.rows);
   },
@@ -55,7 +73,7 @@ app.http('usersCreate', {
     const { user, error, status } = await requireRole(request, 'admin');
     if (error) return err(error, status);
     const { body, bad } = await readJson(request); if (bad) return bad;
-    const { email, first_name, last_name, role, phone_mobile, password } = body || {};
+    const { email, first_name, last_name, role, phone_mobile, password, member_number } = body || {};
 
     if (!email || !EMAIL_RE.test(String(email))) return err('A valid email address is required');
     if (!first_name || !last_name) return err('First and last name are required');
@@ -68,10 +86,16 @@ app.http('usersCreate', {
     try {
       const r = await query(
         `INSERT INTO public.profiles
-           (email, first_name, last_name, full_name, phone_mobile, role, password_hash, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+           (email, first_name, last_name, full_name, phone_mobile, role, password_hash,
+            member_number, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
         [String(email).toLowerCase().trim(), String(first_name).trim(), String(last_name).trim(),
-         full, phone_mobile || null, role, bcrypt.hashSync(password, 10), user.sub]
+         full, phone_mobile || null, role, bcrypt.hashSync(password, 10),
+         // Carries the roster key across when the account was created from a
+         // loanee, so the next roster sync updates this person rather than
+         // creating a second account beside them.
+         (member_number == null || member_number === '') ? null : String(member_number).trim(),
+         user.sub]
       );
       await logAudit(request, {
         profile_id: user.sub, email: user.email,
@@ -79,7 +103,13 @@ app.http('usersCreate', {
       });
       return json(safeProfile(r.rows[0]), 201);
     } catch (e) {
-      if (e.code === '23505') return err('Someone already has an account with that email address', 409);
+      // Two different unique indexes can raise this, and "that email is
+      // taken" is actively misleading when it was the member number.
+      if (e.code === '23505') {
+        return err(e.constraint === 'profiles_member_number_uniq'
+          ? 'That member number already has an account. Search the user list for it instead.'
+          : 'Someone already has an account with that email address', 409);
+      }
       throw e;
     }
   },
