@@ -54,13 +54,13 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
 
   // Every picker keeps its own dropdown in the DOM (hidden when closed),
   // so options must be scoped to the wrapper of the specific input —
-  // otherwise a stale loanee menu collides with the open asset menu.
+  // otherwise a stale member menu collides with the open asset menu.
   const opt = (inputId, i = 0) =>
     page.locator(`#${inputId}`).locator('xpath=..').locator(`[data-i="${i}"]`);
   const optCount = async (inputId) =>
     page.locator(`#${inputId}`).locator('xpath=..').locator('[data-i]').count();
 
-  // ══ LOGIN ════════════════════════════════════════════════════════════
+  // ══ LOGIN ═══════════════════════════════════════════════════════
   section('Login');
   await page.goto(`${BASE}/index.html`);
   await page.waitForLoadState('domcontentloaded');
@@ -82,7 +82,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   await page.waitForURL('**/admin.html', { timeout: 15000, waitUntil: 'commit' });
   check('a correct password lands on the admin console', page.url().includes('admin.html'));
 
-  // ══ ADMIN ════════════════════════════════════════════════════════════
+  // ══ ADMIN ═══════════════════════════════════════════════════════
   section('Admin console');
   await page.waitForLoadState('domcontentloaded');
   await page.waitForTimeout(800);
@@ -94,7 +94,6 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
     (await page.locator('#user-role-label').textContent()).includes('Administrator'));
   await shot('02-admin-dashboard');
 
-  check('the loanee table rendered', await page.locator('#loanees-table table').isVisible());
   check('the groups table rendered', await page.locator('#groups-table table').isVisible());
   check('the users table rendered', await page.locator('#users-table table').isVisible());
   check('both lookup panels rendered',
@@ -113,10 +112,13 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
     (await page.locator('#logs-panel tbody tr').count()) > 3);
   await shot('04-admin-logs');
 
-  // Create a loanee through the real modal.
-  section('Create a loanee through the UI');
-  await page.locator('#sec-loanees').scrollIntoViewIfNeeded();
-  await page.click('button:has-text("Add loanee")');
+  // Create a committee member through the real modal. They live on their
+  // own page now, not in the admin console, so go there first.
+  section('Create a committee member through the UI');
+  await page.goto(`${BASE}/pages/members.html`);
+  await page.waitForSelector('#loanees-table table');
+  check('the committee member table rendered', await page.locator('#loanees-table table').isVisible());
+  await page.click('button:has-text("Add member")');
   await page.waitForSelector('#ui-modal-form');
   check('the form modal opens', await page.locator('.ui-modal-card').isVisible());
   await page.fill('[name="last_name"]', 'Reyes');
@@ -126,14 +128,14 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   await page.fill('[name="email"]', `mreyes.${STAMP}@example.com`);
   await page.fill('[name="phone_mobile"]', '832-555-0117');
   await page.fill('[name="sub_committee"]', 'ROC Grounds');
-  await shot('05-loanee-modal');
+  await shot('05-member-modal');
   await page.click('#ui-modal-form button[type="submit"]');
   await page.waitForTimeout(900);
   const NEW_LOANEE = `Marisol${STAMP} Reyes`;
-  check('the new loanee appears in the table',
+  check('the new committee member appears in the table',
     await page.locator('#loanees-table').getByText(NEW_LOANEE).isVisible());
 
-  // ══ COUNTER ══════════════════════════════════════════════════════════
+  // ══ COUNTER ════════════════════════════════════════════════════
   section('Check-out counter');
   // Create this run's own assets so the suite never depends on what a
   // previous run left checked out. Two available, one parked in
@@ -232,7 +234,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   check('the cart is cleared afterwards', (await page.locator('#cart-wrap tbody tr').count()) === 0);
   await shot('11-checkout-done');
 
-  // ══ BOARD ════════════════════════════════════════════════════════════
+  // ══ BOARD ═══════════════════════════════════════════════════════
   section('Leadership board');
   // Backdate one open loan so the board has something overdue to show.
   // Done through the real extend endpoint rather than by touching the DB,
@@ -304,7 +306,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
     await shot('14-board-overdue-filter');
   }
 
-  // ══ ASSETS ═══════════════════════════════════════════════════════════
+  // ══ ASSETS ══════════════════════════════════════════════════════
   section('Asset catalog');
   await page.goto(`${BASE}/pages/assets.html`);
   await page.waitForLoadState('domcontentloaded');
@@ -328,16 +330,19 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   await shot('16-asset-detail');
   await page.keyboard.press('Escape');
 
-  // ══ REPORTS ══════════════════════════════════════════════════════════
+  // ══ REPORTS ═══════════════════════════════════════════════════
   section('Reports');
   await page.goto(`${BASE}/pages/reports.html`);
   await page.waitForLoadState('domcontentloaded');
   await page.waitForTimeout(1000);
   check('the report tabs render', (await page.locator('#report-tabs button').count()) === 6);
+  check('Reports opens on the checkout history, not on Out Now',
+    (await page.locator('#report-tabs button.active').textContent()).includes('Checkout history'),
+    await page.locator('#report-tabs button.active').textContent());
   check('the default report has rows', (await page.locator('#report-body tbody tr').count()) > 0);
-  await shot('17-reports-outnow');
+  await shot('17-reports-history');
 
-  for (const [label, name] of [['By person', '18-report-by-person'], ['Inventory', '19-report-inventory'],
+  for (const [label, name] of [['Out now', '18-report-out-now'], ['Inventory', '19-report-inventory'],
                                ['Activity', '20-report-activity'], ['Overdue', '21-report-overdue']]) {
     await page.locator('#report-tabs button', { hasText: label }).click();
     await page.waitForTimeout(900);
@@ -347,7 +352,8 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   }
 
   // Export actually produces a file.
-  await page.locator('#report-tabs button', { hasText: 'By person' }).click();
+  // Back to the landing report: its CSV is the one with a person column.
+  await page.locator('#report-tabs button', { hasText: 'Checkout history' }).click();
   await page.waitForTimeout(900);
   const dl = page.waitForEvent('download', { timeout: 8000 });
   await page.click('#export-btn');
@@ -358,10 +364,10 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   check('CSV export downloads a real file', csv.length > 50, download.suggestedFilename());
   check('the CSV starts with a UTF-8 BOM so Excel reads it correctly', csv.charCodeAt(0) === 0xFEFF);
   check('the CSV header uses human labels, not column names',
-    csv.split('\r\n')[0].includes('Loanee') && csv.split('\r\n')[0].includes('Asset tag'),
+    csv.split('\r\n')[0].includes('Member') && csv.split('\r\n')[0].includes('Asset tag'),
     csv.split('\r\n')[0].slice(0, 120));
 
-  // ══ ROLE GATING IN THE BROWSER ═══════════════════════════════════════
+  // ══ ROLE GATING IN THE BROWSER ═════════════════════════════════════
   section('Role gating');
   const leader = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await leader.route('**://fonts.googleapis.com/**', r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
@@ -393,7 +399,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   check('no page errors in the leader session', leaderErrors.length === 0, leaderErrors.join(' | '));
   await leader.close();
 
-  // ══ CONSOLE HEALTH ═══════════════════════════════════════════════════
+  // ══ CONSOLE HEALTH ═════════════════════════════════════════════
   section('Console');
   // Missing photos and the absent blob container produce expected 404/503
   // noise; anything else is a real defect.
