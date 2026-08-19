@@ -404,7 +404,7 @@ app.http('loaneesDelete', {
 
 module.exports = {};
 
-// ═════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════
 // Bulk removal.
 //
 // Two rules run through both routes below, and they are the whole design:
@@ -420,7 +420,7 @@ module.exports = {};
 //
 // Both routes report the split, so "delete" never quietly means something
 // other than what was clicked.
-// ═════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════
 async function removeLoanees(client, ids, reason) {
   if (!ids.length) return { deleted: 0, deactivated: 0, deactivated_names: [] };
 
@@ -455,6 +455,11 @@ app.http('loaneesBulkDelete', {
     const ids = (Array.isArray(body?.ids) ? body.ids : []).map(uuidOrNull).filter(Boolean);
     if (!ids.length) return err('Select at least one person first');
     if (ids.length > 1000) return err('That is more than 1000 people — use Clear roster instead');
+    // Verified on the server, not just in the browser. A confirmation that
+    // only exists in the UI guards against a misclick and nothing else.
+    if (String(body?.confirm || '').trim() !== 'DELETE') {
+      return err('Type DELETE exactly to confirm.');
+    }
 
     const out = await withTransaction(c =>
       removeLoanees(c, ids, `removed by ${user.email || 'an admin'} on ${new Date().toISOString().slice(0, 10)}`));

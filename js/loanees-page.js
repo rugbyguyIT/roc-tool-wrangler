@@ -1,4 +1,4 @@
-// ═════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════
 // Loanees — the whole roster, on its own page.
 //
 // 493 people is too many for a section buried in the admin console, and
@@ -8,7 +8,7 @@
 //
 // The form and the row actions come from js/loanee-form.js, shared with
 // the admin console, so a loanee record has one definition.
-// ═════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════
 const me = requireLogin('staff', 'admin');
 
 const PAGE_SIZES = [25, 50, 100, 250, 500];
@@ -51,7 +51,7 @@ const COLUMNS = [
   // here invited reading this page as a custody screen, which it isn't.
 ];
 
-// ── Excel-style column filter (Committee) ──────────────────────────────
+// ── Excel-style column filter (Committee) ─────────────────────────────
 // A funnel on the column header opens a tick list of every committee on
 // the roster, with counts. Nothing ticked means everything, so the funnel
 // is only "on" when a real subset is chosen.
@@ -308,7 +308,7 @@ function setPageSize(n) {
   loadLoanees();
 }
 
-// ── Sorting ───────────────────────────────────────────────────────
+// ── Sorting ──────────────────────────────────────────────────
 // The direction is chosen explicitly, so there is no hidden toggle state.
 // Clearing the active column's select falls back to last name ascending
 // rather than leaving the list in an undefined order.
@@ -333,7 +333,7 @@ function clearSort() {
   loadLoanees();
 }
 
-// ── Selection ─────────────────────────────────────────────────────
+// ── Selection ────────────────────────────────────────────────
 function rowTick(ev, index, id) {
   // Shift extends from the last row you ticked, exactly like a file list.
   if (ev.shiftKey && LAST_CLICKED !== null) {
@@ -378,12 +378,15 @@ function renderSelectionBar() {
 async function deleteSelected() {
   const ids = [...SELECTED];
   if (!ids.length) return;
-  const ok = await confirmModal(
-    `Remove ${ids.length} ${ids.length === 1 ? 'person' : 'people'} from the roster?`,
-    { title: 'Delete loanees', confirmLabel: `Delete ${ids.length}`, danger: true });
+  const ok = await typedDeleteModal(
+    `Delete ${ids.length} ${ids.length === 1 ? 'person' : 'people'}?`,
+    `<b>This removes ${ids.length} ${ids.length === 1 ? 'person' : 'people'} from the roster.</b>
+     Anyone who has ever borrowed equipment is deactivated rather than deleted, so no
+     check-out history is lost — everyone else is permanently removed.`,
+    { submitLabel: `Delete ${ids.length}` });
   if (!ok) return;
 
-  const { data, error } = await api('/loanees/bulk-delete', 'POST', { ids });
+  const { data, error } = await api('/loanees/bulk-delete', 'POST', { ids, confirm: 'DELETE' });
   if (error) return toastMsg('Could not delete', error, 'error');
 
   // Anyone with loan history is deactivated instead of deleted. Say so —
@@ -396,7 +399,7 @@ async function deleteSelected() {
   loadLoanees();
 }
 
-// ── Clear roster ─────────────────────────────────────────────────
+// ── Clear roster ─────────────────────────────────────────────
 function clearRoster() {
   formModal('Clear the entire roster', `
     <div class="card card-sm" style="border-left:3px solid var(--red);margin-bottom:14px">
@@ -438,7 +441,7 @@ function setStatusFilter(v) {
   loadLoanees();
 }
 
-// ── Boot ───────────────────────────────────────────────────────
+// ── Boot ──────────────────────────────────────────────
 (async function () {
   brandPage();
 
