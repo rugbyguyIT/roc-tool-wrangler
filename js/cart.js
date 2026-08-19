@@ -9,10 +9,27 @@ const CART_KEY = 'assets_cart';
 
 const Cart = {
   loanee: null,
-  items: [],   // [{ asset_id, asset_tag, title, primary_photo_url, category, blocked_reason }]
+  items: [],   // [{ asset_id, asset_tag, title, primary_photo_url, category,
+               //    color, manufacturer, status, blocked_reason }]
 
   load() {
+    // An unfinished handoff does NOT survive leaving the counter page.
+    // Walking off with a person chosen and coming back to find their name
+    // still sitting there is how the wrong person ends up on a loan.
+    //
+    // A RELOAD is different, and is the case sessionStorage was for: a
+    // tablet locking its screen, or a fat-fingered refresh, must not throw
+    // away five already-scanned items. The navigation type tells the two
+    // apart — 'reload' keeps the cart, anything else (a link, back/forward,
+    // a fresh open) starts clean.
     try {
+      const nav = performance.getEntriesByType?.('navigation')?.[0];
+      // No Navigation Timing (very old browser) → treat it as a fresh
+      // arrival and clear, because that is the safer of the two mistakes.
+      if (!nav || nav.type !== 'reload') {
+        sessionStorage.removeItem(CART_KEY);
+        return this;
+      }
       const s = JSON.parse(sessionStorage.getItem(CART_KEY) || 'null');
       if (s) { this.loanee = s.loanee; this.items = s.items || []; }
     } catch { /* a corrupt cart is not worth crashing over */ }
@@ -32,6 +49,11 @@ const Cart = {
     this.items.push({
       asset_id: a.id, asset_tag: a.asset_tag, title: a.title,
       primary_photo_url: a.primary_photo_url, category: a.category,
+      // Carried into the cart, not just the picker: two carts with
+      // sequential tags look identical on the confirmation screen, and the
+      // colour is what tells whoever is handing it over that they pulled
+      // the right one off the line.
+      color: a.color || null, manufacturer: a.manufacturer || null,
       status: a.status, blocked_reason: null,
     });
     this.save();
