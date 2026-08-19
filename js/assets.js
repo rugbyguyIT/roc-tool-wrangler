@@ -17,6 +17,25 @@ let debounceTimer = null;
 // that is exactly how this arrived as a bug report.
 let LOOKUP_ERR = { categories: null, locations: null };
 
+// Manufacturer suggestions. Seeded with the makes this committee is most
+// likely to be holding, then topped up with whatever is already in the
+// catalog so the list learns as equipment is added. It is a datalist, not
+// a select — anything can still be typed, including a make nobody here has
+// seen before. The point is only that the common ones land spelled the
+// same way every time, because three spellings of "Club Car" is what makes
+// a report grouped by manufacturer worthless.
+const MANUFACTURER_SEED = [
+  'Club Car', 'E-Z-GO', 'Yamaha',              // golf carts
+  'Toyota', 'Hyster', 'Crown', 'John Deere',   // forklifts and loaders
+  'Motorola', 'Kenwood',                       // radios
+  'DeWalt', 'Milwaukee', 'Makita', 'Honda',    // tools and generators
+];
+function manufacturerList() {
+  const seen = new Set(MANUFACTURER_SEED);
+  for (const a of ROWS) if (a.manufacturer) seen.add(a.manufacturer);
+  return [...seen].sort((a, b) => a.localeCompare(b));
+}
+
 function filters() {
   const g = document.getElementById('f-group').value;
   const p = new URLSearchParams();
@@ -73,7 +92,8 @@ function render() {
         <div style="font-weight:600">${esc(a.title)}</div>
         <div class="small muted mono">${esc(a.asset_tag)}</div>
       </td>
-      <td class="small">${esc(a.category || '—')}</td>
+      <td class="small">${esc(a.category || '—')}
+        ${assetMarkings(a)}</td>
       <td>${statusBadge(a.status, a.current_overdue)}</td>
       <td class="small">${esc(a.location || '—')}</td>
       <td class="small">${a.current_loanee
@@ -94,7 +114,7 @@ function render() {
     </table></div>`;
 }
 
-// ── Detail ───────────────────────────────────────────────
+// ── Detail ───────────────────────────────
 async function openAsset(id) {
   const { data: a, error } = await api(`/assets/${id}`);
   if (error) return toastMsg('Could not open that asset', error, 'error');
@@ -124,6 +144,8 @@ async function openAsset(id) {
   const fields = [
     ['Tag', `<span class="mono">${esc(a.asset_tag)}</span>`],
     ['Category', esc(a.category || '—')],
+    ['Manufacturer', esc(a.manufacturer || '—')],
+    ['Color', a.color ? colorChip(a.color) : '—'],
     ['Location', esc(a.location || '—')],
     ['Description', esc(a.description || '—')],
     ['Notes', esc(a.notes || '—')],
@@ -184,7 +206,7 @@ async function assetAction(id, action) {
   load();
 }
 
-// ── Admin editing ────────────────────────────────────────────
+// ── Admin editing ─────────────────────────────────
 // An empty dropdown has to say why it is empty. There are three reasons and
 // they need three different actions from whoever is standing there:
 // the request failed, nothing has been set up yet, or everything that exists
@@ -256,6 +278,32 @@ function assetFormFields(a) {
         <label class="form-label">Location</label>
         <select class="form-input" name="location_id">${opts(locList, a.location_id)}</select>
         ${lookupNote('locations', LOCATIONS, LOOKUP_ERR.locations, locNote)}
+      </div>
+    </div>
+    <!-- Colour and manufacturer sit next to each other because they answer
+         the same question: which of these two identical-looking carts is
+         this one. -->
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Color</label>
+        <input class="form-input" name="color" value="${esc(a.color || '')}"
+               placeholder="White" list="asset-colors" autocomplete="off" />
+        <datalist id="asset-colors">
+          ${['White', 'Black', 'Red', 'Blue', 'Green', 'Orange', 'Yellow', 'Grey', 'Tan', 'Camo']
+            .map(c => `<option value="${c}"></option>`).join('')}
+        </datalist>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Manufacturer</label>
+        <input class="form-input" name="manufacturer" value="${esc(a.manufacturer || '')}"
+               placeholder="Club Car" list="asset-mfrs" autocomplete="off" />
+        <!-- Suggestions, not a fixed list: a datalist still accepts anything
+             typed, so a one-off make is never blocked, but the common ones
+             land spelled the same way every time. Three spellings of
+             "Club Car" is what makes a report by manufacturer useless. -->
+        <datalist id="asset-mfrs">
+          ${manufacturerList().map(m => `<option value="${esc(m)}"></option>`).join('')}
+        </datalist>
       </div>
     </div>
     <div class="form-group">
@@ -391,7 +439,7 @@ async function removePhoto(assetId, photoId) {
   load();
 }
 
-// ── Boot ──────────────────────────────────────────────
+// ── Boot ──────────────────────────────
 (async function init() {
   if (!me) return;
   if (isAdmin) {

@@ -77,7 +77,7 @@ async function openImport(kind, targetGroupId) {
       <div class="small" style="font-weight:600;margin-bottom:8px">Expected columns</div>
       <div class="small muted">
         ${isAssets
-          ? '<b>Required:</b> asset tag, title.<br><b>Optional:</b> category, location, serial, description, notes, status, groups, value.'
+          ? '<b>Required:</b> asset tag, title.<br><b>Optional:</b> category, location, serial, manufacturer (or make / brand / mfg), color, description, notes, status, groups, value.'
           : '<b>Required:</b> first name, last name.<br><b>Optional:</b> email, cell, position, sub-committee, groups, notes.'}
       </div>
     </div>
