@@ -1,0 +1,58 @@
+/* ─────────────────────────────────────────────────────────────
+   Excel-style column filter — the funnel in a table header and the
+   tick-list panel it opens.
+
+   Its own file, loaded only by pages that use it (currently the Loanees
+   page), for the same reason board-glass.css is its own file: this is a
+   page-scoped component, not part of the shared design system. The sort
+   controls it sits beside (.th-sortable / .th-select) DO live in
+   css/style.css, because every table gets those.
+
+   The panel is appended to <body> and positioned absolutely rather than
+   nested inside the <th>. A table cell inside a wrapper with
+   overflow-x:auto clips anything that hangs out of it, so a panel
+   rendered in place would be cut off at the edge of the table.
+───────────────────────────────────────────────────────────── */
+
+/* Given a real size rather than being left to collapse around its glyph:
+   Font Awesome comes from a CDN, and on venue wifi it sometimes doesn't
+   arrive. A button sized only by its icon becomes a 0x0 target that
+   cannot be clicked at all. */
+.th-filter {
+  border:0; background:none; cursor:pointer; margin-left:4px;
+  color:var(--muted2); font-size:10px; font-family:inherit;
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:20px; min-height:18px; padding:0 3px; border-radius:4px;
+  vertical-align:middle;
+}
+.th-filter:hover { color:var(--orange); }
+.th-filter.is-on { color:var(--orange); }
+.th-filter.is-on span {
+  margin-left:3px; background:var(--orange); color:#fff; border-radius:8px;
+  padding:0 5px; font-size:9px; font-weight:700;
+}
+
+.col-filter {
+  position:absolute; z-index:200; width:260px;
+  background:#fff; border:1px solid var(--border2); border-radius:12px;
+  box-shadow:0 12px 40px rgba(0,46,93,0.22);
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.col-filter-head { padding:10px 10px 6px; }
+.col-filter-head .form-input { font-size:12px; padding:6px 10px; }
+.col-filter-all {
+  display:flex; align-items:center; gap:8px; padding:7px 12px;
+  border-top:1px solid var(--border); border-bottom:1px solid var(--border);
+  font-size:13px; cursor:pointer;
+}
+.col-filter-list { max-height:260px; overflow-y:auto; padding:4px 0; }
+.col-filter-row {
+  display:flex; align-items:center; gap:8px; padding:5px 12px;
+  font-size:13px; cursor:pointer;
+}
+.col-filter-row:hover { background:var(--surface2); }
+.col-filter-row span:first-of-type { flex:1; min-width:0; word-break:break-word; }
+.col-filter-foot {
+  display:flex; align-items:center; gap:6px; padding:9px 10px;
+  border-top:1px solid var(--border); background:var(--surface2);
+}
