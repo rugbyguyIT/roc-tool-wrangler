@@ -8,7 +8,7 @@
 //   · renderTopNav()   role-aware nav for pages that don't hardcode it
 // ─────────────────────────────────────────────────────────────
 
-// ── Shared stylesheets ───────────────────────────────────
+// ── Shared stylesheets ───────────────────────
 // Linked from here rather than from six separate <head>s. This file owns
 // the column filter and the page watermark, so it owns their styles too —
 // and a stylesheet each page has to remember to link is one that a page
@@ -63,16 +63,112 @@ function assetThumb(url, size = 44) {
     : `<div style="width:${size}px;height:${size}px;border-radius:8px;background:var(--surface3);display:flex;align-items:center;justify-content:center;color:var(--muted2)"><i class="fa-solid fa-camera"></i></div>`;
 }
 
+// ── Colour and manufacturer ─────────────────────────────
+// The two facts that tell one unit from another across a shed. Rendered
+// the same way everywhere — the list, the detail, the check-out picker and
+// the cart — so "the white Club Car" looks like the same thing on every
+// screen it appears on.
+
+// A strict allow-list, NOT the typed text. `background:${color}` with a
+// user-supplied string is a CSS injection, and half the values people type
+// ("camo", "faded green") are not colours a browser knows anyway. Anything
+// unrecognised renders as the word alone, which still reads fine.
+const COLOR_SWATCH = {
+  white: '#ffffff', black: '#1a1a1a', red: '#c0303a', blue: '#0076a9',
+  navy: '#002e5d', green: '#1a8a4a', orange: '#ef7622', yellow: '#f5c518',
+  grey: '#8a93a3', gray: '#8a93a3', silver: '#d1d3d4', tan: '#d2b48c',
+  brown: '#6b4423', beige: '#e8dcc4', purple: '#7a4fa3', pink: '#e58fb0',
+};
+
+function colorChip(color) {
+  const raw = String(color || '').trim();
+  if (!raw) return '';
+  const hex = COLOR_SWATCH[raw.toLowerCase()];
+  if (!hex) return esc(raw);
+  return `<span style="display:inline-flex;align-items:center;gap:5px">
+    <span style="width:11px;height:11px;border-radius:3px;background:${hex};
+                 border:1px solid rgba(0,46,93,0.30);flex-shrink:0"></span>${esc(raw)}</span>`;
+}
+
+// The identifying line under an asset's name. Empty string when neither is
+// recorded, so it costs nothing on a catalog that has not filled them in.
+function assetMarkings(a) {
+  const bits = [];
+  if (a.color) bits.push(colorChip(a.color));
+  if (a.manufacturer) bits.push(esc(a.manufacturer));
+  if (!bits.length) return '';
+  return `<div class="small muted" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px">
+    ${bits.join('<span style="opacity:.5">·</span>')}</div>`;
+}
+
+// Hours (as the open-items view reports them) said the way a person would.
+function fmtDuration(hours) {
+  const h = Number(hours);
+  if (!Number.isFinite(h) || h < 0) return '—';
+  if (h < 1) return `${Math.round(h * 60)}m`;
+  if (h < 48) return `${Math.floor(h)}h ${String(Math.round((h % 1) * 60)).padStart(2, '0')}m`;
+  return `${Math.floor(h / 24)}d ${Math.floor(h % 24)}h`;
+}
+
+// ── Live countdown ──────────────────────────────────
+// One ticking element, driven off due_at, for a board left up on a wall.
+// A static "due 6:00 PM" is a number you have to do arithmetic on; a
+// countdown is the answer already worked out, which is the whole point of
+// a display nobody is standing at.
+function countdownHtml(dueAt) {
+  if (!dueAt) return `<span class="event-meta-item"><i class="fa-solid fa-infinity"></i> No due date</span>`;
+  // Rendered empty and filled by the ticker, so the first paint and every
+  // paint after it come from the same code path.
+  return `<span class="event-meta-item t-countdown" data-due="${esc(dueAt)}"></span>`;
+}
+
+function renderCountdown(el) {
+  const due = Date.parse(el.dataset.due);
+  if (Number.isNaN(due)) { el.textContent = ''; return; }
+  const diff = due - Date.now();
+  const over = diff < 0;
+  const total = Math.floor(Math.abs(diff) / 1000);
+  const d = Math.floor(total / 86400);
+  const h = Math.floor((total % 86400) / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  // Seconds are dropped past a day out — a ticking seconds digit on
+  // something due Thursday is motion for its own sake.
+  const pad = n => String(n).padStart(2, '0');
+  const parts = d ? `${d}d ${h}h ${pad(m)}m`
+    : h ? `${h}h ${pad(m)}m ${pad(s)}s`
+    : `${m}m ${pad(s)}s`;
+  el.innerHTML = over
+    ? `<i class="fa-solid fa-triangle-exclamation"></i> Overdue by ${parts}`
+    : `<i class="fa-solid fa-hourglass-half"></i> Due in ${parts}`;
+  el.style.cssText = over ? 'color:var(--red);font-weight:700' : '';
+}
+
+let _countdownTimer = null;
+function startCountdowns() {
+  const tick = () => document.querySelectorAll('.t-countdown[data-due]').forEach(renderCountdown);
+  tick();
+  // Re-queried every tick rather than captured once, because the feed is
+  // re-rendered wholesale on every poll and a captured list would be of
+  // elements that are no longer in the document.
+  if (!_countdownTimer) _countdownTimer = setInterval(tick, 1000);
+}
+
 // The card the board and the check-in screen both render. One function
 // so an overdue radio looks identical wherever you see it.
-function openItemCard(v, actionsHtml) {
+//
+// opts.hidePhone   — kiosk displays hang on a wall in a public shed, and a
+//                    volunteer's mobile number is not wall material.
+// opts.countdown   — swap the static due time for a live one.
+function openItemCard(v, actionsHtml, opts) {
+  opts = opts || {};
   const m = v.overdue ? OVERDUE_META : STATUS_META.checked_out;
-  const due = v.due_at
+  const due = opts.countdown ? countdownHtml(v.due_at) : (v.due_at
     ? (v.overdue
         ? `<span class="event-meta-item" style="color:var(--red);font-weight:700"><i class="fa-solid fa-triangle-exclamation"></i> Due ${esc(fmtWhen(v.due_at))} · ${esc(fmtAgo(v.due_at))}</span>`
         : `<span class="event-meta-item"><i class="fa-solid fa-clock"></i> Due ${esc(fmtWhen(v.due_at))}</span>`)
-    : `<span class="event-meta-item"><i class="fa-solid fa-infinity"></i> No due date</span>`;
-  const phone = v.loanee_phone
+    : `<span class="event-meta-item"><i class="fa-solid fa-infinity"></i> No due date</span>`);
+  const phone = (v.loanee_phone && !opts.hidePhone)
     ? `<a class="event-meta-item" href="tel:${esc(v.loanee_phone)}" style="text-decoration:none"><i class="fa-solid fa-phone"></i> ${esc(fmtPhone(v.loanee_phone))}</a>`
     : '';
   return `<div class="event-card"><div class="ec-strip" style="background:${m.strip}"></div><div class="ec-body">
@@ -82,6 +178,7 @@ function openItemCard(v, actionsHtml) {
         <div style="min-width:0">
           <div class="event-title">${esc(v.asset_title)}</div>
           <div class="small mono muted">${esc(v.asset_tag)}${v.category ? ' · ' + esc(v.category) : ''}</div>
+          ${assetMarkings(v)}
         </div>
       </div>
       <span class="badge ${m.badge}"><i class="fa-solid ${m.icon}"></i> ${m.label}</span>
@@ -90,7 +187,12 @@ function openItemCard(v, actionsHtml) {
       <span class="event-meta-item"><i class="fa-solid fa-user"></i> <b>${esc(v.loanee_name)}</b></span>
       ${v.sub_committee ? `<span class="event-meta-item"><i class="fa-solid fa-people-group"></i> ${esc(v.sub_committee)}</span>` : ''}
       ${phone}
-      <span class="event-meta-item"><i class="fa-solid fa-arrow-right-from-bracket"></i> Out ${esc(fmtAgo(v.checked_out_at))}</span>
+      <span class="event-meta-item"><i class="fa-solid fa-arrow-right-from-bracket"></i> Out ${esc(fmtAgo(v.checked_out_at))}${
+        // How long they have actually had it. fmtAgo alone reads as a
+        // timestamp ("2 hours ago"); on a wall display the question is
+        // "how long has this been gone", which is the same number said
+        // the other way round.
+        opts.countdown && v.hours_out != null ? ` · held ${esc(fmtDuration(v.hours_out))}` : ''}</span>
       ${due}
     </div>
     ${actionsHtml ? `<div class="event-footer"><span class="small muted">Checked out by ${esc(v.checked_out_by_name || '—')}</span><div class="event-actions">${actionsHtml}</div></div>` : ''}
