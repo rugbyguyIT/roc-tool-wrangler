@@ -1,4 +1,4 @@
-// ═══════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
 // HLSR Asset Tracker — API smoke test.
 //
 // Runs the REAL handlers against a REAL Postgres, without Azure. It does
@@ -13,11 +13,11 @@
 //   DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/smoke.js
 //
 // Exits non-zero on the first failure.
-// ═══════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
 const path = require('path');
 const Module = require('module');
 
-// ── Stub @azure/functions ──────────────────────────────────────────────
+// ── Stub @azure/functions ────────────────────────────────────────
 const ROUTES = [];
 const HOOKS = [];
 const azureStub = {
@@ -38,7 +38,7 @@ const fs = require('fs');
 const fnDir = path.join(__dirname, '..', 'src', 'functions');
 for (const f of fs.readdirSync(fnDir).filter(f => f.endsWith('.js'))) require(path.join(fnDir, f));
 
-// ── Minimal request/response plumbing ──────────────────────────────────
+// ── Minimal request/response plumbing ─────────────────────────────
 function matchRoute(method, urlPath) {
   const parts = urlPath.split('/').filter(Boolean);
   for (const r of ROUTES) {
@@ -80,7 +80,7 @@ async function call(method, url, body, tokenOverride) {
   return { status: res.status, body: parsed };
 }
 
-// ── Tiny assertion helpers ─────────────────────────────────────────────
+// ── Tiny assertion helpers ────────────────────────────────────
 let passed = 0;
 const failures = [];
 function check(label, cond, extra) {
@@ -126,7 +126,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   await query(`DELETE FROM public.asset_locations  WHERE lower(name) = 'yellow lot'`);
   console.log('  data cleared');
 
-  // ══ AUTH ═════════════════════════════════════════════════════════════
+  // ══ AUTH ════════════════════════════════════════════════════════
   section('Auth and bootstrap');
   let r = await call('GET', 'health');
   check('health reports db up', r.body?.db === 'up', r.body);
@@ -161,7 +161,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
     audit.rows.filter(a => a.action === 'login_failed').length === 2
     && audit.rows.some(a => a.action === 'login' && a.ip_address === '203.0.113.7'), audit.rows);
 
-  // ══ USERS ════════════════════════════════════════════════════════════
+  // ══ USERS ═══════════════════════════════════════════════════════
   section('Users and role gating');
   r = await call('POST', 'users', {
     email: 'staff@hlsr.test', first_name: 'Dana', last_name: 'Ruiz',
@@ -210,7 +210,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   r = await call('GET', 'assets', undefined, 'not-a-real-jwt');
   check('a garbage token means 401', r.status === 401, r.body);
 
-  // ══ LOOKUPS, GROUPS, LOANEES ═════════════════════════════════════════
+  // ══ LOOKUPS, GROUPS, LOANEES ══════════════════════════════════════
   section('Reference data');
   TOKEN = ADMIN_TOKEN;
   const cats = await call('GET', 'categories');
@@ -246,7 +246,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   r = await call('POST', 'loanees', { first_name: 'Bad', last_name: 'Email', email: 'not-an-email' });
   check('malformed email is refused', r.status === 400, r.body);
 
-  // ══ ASSETS ═══════════════════════════════════════════════════════════
+  // ══ ASSETS ══════════════════════════════════════════════════════
   section('Assets');
   r = await call('POST', 'assets', {
     asset_tag: 'ROCFEL05', title: 'ROC Front End Loader 05',
@@ -262,9 +262,48 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   const RADIO1 = r.body.id;
   r = await call('POST', 'assets', { asset_tag: 'ROC-RADIO-02', title: 'Motorola Radio 02' });
   const RADIO2 = r.body.id;
-  r = await call('POST', 'assets', { asset_tag: 'ROC-CART-01', title: 'ROC Cart 01' });
+  r = await call('POST', 'assets', {
+    asset_tag: 'ROC-CART-01', title: 'ROC Cart 01',
+    color: '  White  ', manufacturer: 'Club Car',
+  });
   const CART = r.body.id;
   check('three more assets created', !!RADIO1 && !!RADIO2 && !!CART);
+
+  // ── Colour and manufacturer ──────────────────────────────────
+  // Two carts with sequential tags are indistinguishable; these are the
+  // two facts that tell them apart, so they have to survive the round
+  // trip and reach every screen that shows an asset.
+  check('colour and manufacturer are stored, trimmed',
+    r.body.color === 'White' && r.body.manufacturer === 'Club Car', r.body);
+
+  r = await call('POST', 'assets', {
+    asset_tag: 'ROC-CART-02', title: 'ROC Cart 02', color: '', manufacturer: '   ',
+  });
+  // '' would count as a recorded answer of "nothing" in any report that
+  // groups by colour. Blank has to mean nobody filled it in.
+  check('blank colour and manufacturer are stored as NULL, not empty string',
+    r.body.color === null && r.body.manufacturer === null, r.body);
+  const CART2 = r.body.id;
+
+  r = await call('GET', 'assets?q=Club%20Car');
+  check('an asset is findable by manufacturer',
+    r.body.rows.length === 1 && r.body.rows[0].asset_tag === 'ROC-CART-01', r.body.rows.map(x => x.asset_tag));
+  r = await call('GET', 'assets?q=White');
+  check('and by colour', r.body.rows.some(x => x.asset_tag === 'ROC-CART-01'), r.body.rows.map(x => x.asset_tag));
+
+  r = await call('GET', 'assets/lookup?q=ROC-CART', undefined, STAFF_TOKEN);
+  check('the check-out picker carries them, so the counter can tell two carts apart',
+    r.body.matches.find(m => m.asset_tag === 'ROC-CART-01')?.manufacturer === 'Club Car', r.body.matches);
+
+  r = await call('PATCH', `assets/${CART}`, { color: 'Blue' });
+  check('colour can be changed on its own', r.body.color === 'Blue', r.body);
+  check('and changing it leaves the manufacturer alone', r.body.manufacturer === 'Club Car', r.body);
+  r = await call('PATCH', `assets/${CART}`, { color: '' });
+  check('clearing a colour returns it to NULL rather than empty string',
+    r.body.color === null, r.body);
+  r = await call('PATCH', `assets/${CART}`, { color: 'White' });
+  check('and it can be set again', r.body.color === 'White', r.body);
+  check('CART2 exists for later checks', !!CART2);
 
   r = await call('PATCH', `assets/${LOADER}`, { status: 'checked_out' });
   check('status cannot be set through the generic edit endpoint', r.status === 400, r.body);
@@ -273,7 +312,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   r = await call('PATCH', `assets/${LOADER}/groups`, { group_ids: [certGroup.id] });
   check('an asset can be restricted to a group', r.status === 200 && r.body.groups.length === 1, r.body);
 
-  // ══ ELIGIBILITY ══════════════════════════════════════════════════════
+  // ══ ELIGIBILITY ═════════════════════════════════════════════════
   section('Group restrictions');
   r = await call('GET', `eligibility?loanee_id=${ROBERT}&asset_ids=${LOADER}`, undefined, STAFF_TOKEN);
   check('a group member is eligible', r.body[0].ok === true, r.body);
@@ -289,7 +328,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   check('the picker returns an exact match for a scanned tag', !!r.body.exact, r.body);
   check('the picker marks it blocked before anyone tries', r.body.exact.ok === false, r.body.exact);
 
-  // ══ CHECKOUT ═════════════════════════════════════════════════════════
+  // ══ CHECKOUT ═════════════════════════════════════════════════════
   section('Check-out');
   r = await call('POST', 'checkout', { loanee_id: CASEY, asset_ids: [LOADER] }, STAFF_TOKEN);
   check('checkout to an ineligible person is refused (409)', r.status === 409, r.body);
@@ -333,7 +372,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   check('each item wrote an append-only event naming the actor',
     evts.rows.length === 3 && evts.rows.every(e => e.actor_role === 'staff' && e.loanee_id === ROBERT), evts.rows);
 
-  // ══ CONCURRENCY ══════════════════════════════════════════════════════
+  // ══ CONCURRENCY ═════════════════════════════════════════════════
   section('Concurrency and double-checkout');
   r = await call('POST', 'checkout', { loanee_id: CASEY, asset_ids: [RADIO1] }, STAFF_TOKEN);
   check('an already-out asset cannot go out again', r.status === 409, r.body);
@@ -353,7 +392,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
     `SELECT count(*)::int n FROM public.loan_items WHERE asset_id = $1 AND checked_in_at IS NULL`, [raceId]);
   check('the database holds exactly one open line for that asset', openForRace.rows[0].n === 1);
 
-  // ══ RETIRE GUARD ═════════════════════════════════════════════════════
+  // ══ RETIRE GUARD ════════════════════════════════════════════════
   section('Lifecycle guards');
   r = await call('POST', `assets/${LOADER}/action`, { action: 'retire', reason: 'Sold' });
   check('a checked-out asset cannot be retired', r.status === 409, r.body);
@@ -370,7 +409,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   r = await call('POST', `assets/${RADIO2}/action`, { action: 'maintenance_start' });
   check('maintenance without a reason is refused', r.status === 400, r.body);
 
-  // ══ BOARD ════════════════════════════════════════════════════════════
+  // ══ BOARD ═══════════════════════════════════════════════════════
   section('The board');
   r = await call('GET', 'loans/open', undefined, LEADER_TOKEN);
   check('a leader can read what is out', r.status === 200, r.body);
@@ -380,7 +419,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   check('the board stats agree with the rows', r.body.stats.out_now === 4, r.body.stats);
   check('nothing is overdue yet', r.body.stats.overdue === 0, r.body.stats);
 
-  // ══ OVERDUE ══════════════════════════════════════════════════════════
+  // ══ OVERDUE ════════════════════════════════════════════════════
   section('Overdue');
   // Push one item's due date into the past rather than waiting 12 hours.
   await query(
@@ -417,7 +456,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
     r.status === 200 && r.body.default_loan_hours === 12, r.body);
   await query(`UPDATE public.app_settings SET overdue_grace_hours = 0 WHERE id = 1`);
 
-  // ══ CHECK-IN ═════════════════════════════════════════════════════════
+  // ══ CHECK-IN ═════════════════════════════════════════════════════
   section('Check-in');
   const openItems = await query(
     `SELECT li.id, li.asset_id FROM public.loan_items li WHERE li.loan_id = $1 AND li.checked_in_at IS NULL`, [LOAN]);
@@ -461,7 +500,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   r = await call('POST', `assets/${LOADER}/action`, { action: 'retire', reason: 'End of life' });
   check('a returned asset CAN be retired', r.status === 200 && r.body.status === 'retired', r.body);
 
-  // ══ FORCE LOGOUT ═════════════════════════════════════════════════════
+  // ══ FORCE LOGOUT ════════════════════════════════════════════════
   section('Force logout and role changes');
   r = await call('GET', 'me', undefined, STAFF_TOKEN);
   check('the staff token still works before revocation', r.status === 200);
@@ -480,7 +519,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   check('the token issued under the old role is dead', r.status === 401, r.body);
   await call('PATCH', `users/${STAFF_ID}`, { role: 'staff' });
 
-  // ══ IMPORT ═══════════════════════════════════════════════════════════
+  // ══ IMPORT ══════════════════════════════════════════════════════
   section('Spreadsheet import');
   const importRows = [
     { row_number: 2, 'First Name': 'Ana', 'Last Name': 'Ortiz', 'Email': 'aortiz@example.com', 'Cell': '713-555-0188', 'Sub Committee': 'ROC Grounds', 'Position': 'Committee Member' },
@@ -541,7 +580,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   const newCat = await query(`SELECT id FROM public.asset_categories WHERE lower(name) = 'pressure washers'`);
   check('the announced category exists after commit', newCat.rows.length === 1);
 
-  // ══ LOOKUP GUARDS ════════════════════════════════════════════════════
+  // ══ LOOKUP GUARDS ═══════════════════════════════════════════════
   section('Lookup and group guards');
   r = await call('DELETE', `categories/${forkliftCat.id}`);
   check('a category in use cannot be deleted', r.status === 409 && r.body.suggest === 'deactivate', r.body);
@@ -565,7 +604,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   r = await call('DELETE', `loanees/${ana.id}`);
   check('a loanee with nothing out can be deactivated', r.status === 200, r.body);
 
-  // ══ REPORTS ══════════════════════════════════════════════════════════
+  // ══ REPORTS ════════════════════════════════════════════════════
   section('Reports');
   r = await call('GET', 'reports/by-loanee');
   const rob = r.body.rows.filter(x => x.full_name === 'Robert Drackett');
@@ -595,7 +634,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   r = await call('GET', 'reports/out-now', undefined, LEADER_TOKEN);
   check('a leader CAN read out-now', r.status === 200, r.body);
 
-  // ══ SETTINGS ═════════════════════════════════════════════════════════
+  // ══ SETTINGS ═════════════════════════════════════════════════════
   section('Settings');
   r = await call('PATCH', 'settings', { default_loan_hours: 24 });
   check('the default loan length can be changed', r.body.default_loan_hours === 24, r.body);
@@ -608,7 +647,7 @@ function section(t) { console.log(`\n\x1b[1m${t}\x1b[0m`); }
   r = await call('GET', 'settings', undefined, STAFF_TOKEN);
   check('staff can read settings (the counter needs the default)', r.status === 401 || r.status === 200);
 
-  // ══ AUDIT COVERAGE ═══════════════════════════════════════════════════
+  // ══ AUDIT COVERAGE ══════════════════════════════════════════════
   section('Audit trail');
   const actions = await query(`SELECT DISTINCT action FROM public.audit_logs`);
   const names = actions.rows.map(a => a.action);
