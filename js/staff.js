@@ -7,7 +7,7 @@ let SETTINGS = { default_loan_hours: 12 };
 let checkinItems = [];   // open loan items currently listed on the check-in side
 let checkinContext = ''; // a heading describing where that list came from
 
-// ── View switching ────────────────────────────────────────
+// ── View switching ────────────────────────
 function setView(v) {
   document.getElementById('view-out').classList.toggle('active', v === 'out');
   document.getElementById('view-in').classList.toggle('active', v === 'in');
@@ -19,7 +19,7 @@ function setView(v) {
   else document.getElementById('in-asset-input')?.focus();
 }
 
-// ── Due date ────────────────────────────────────────────
+// ── Due date ────────────────────────────
 // Pre-filled to now + the configured default (12 hours). Staff can
 // change it or clear it; a cleared field means an indefinite loan and is
 // sent to the server as an explicit null, not as "unset".
@@ -34,7 +34,7 @@ function setDueTonight() {
   document.getElementById('due-input').value = toLocalInput(d);
 }
 
-// ── Cart rendering ────────────────────────────────────────
+// ── Cart rendering ────────────────────────
 function renderLoanee() {
   const picked = document.getElementById('loanee-picked');
   const search = document.getElementById('loanee-search');
@@ -89,6 +89,7 @@ function renderCart() {
       <td>
         <div style="font-weight:600">${esc(i.title)}</div>
         <div class="small muted mono">${esc(i.asset_tag)}${i.category ? ' · ' + esc(i.category) : ''}</div>
+        ${assetMarkings(i)}
         ${i.blocked_reason ? `<div class="small" style="color:var(--red);font-weight:600">
             <i class="fa-solid fa-ban"></i> ${esc(i.blocked_reason)}</div>` : ''}
       </td>
@@ -132,7 +133,7 @@ function removeItem(id) {
   renderCart();
 }
 
-// ── Check out ───────────────────────────────────────────
+// ── Check out ───────────────────────────
 async function doCheckout() {
   if (!Cart.loanee) return toastMsg('Choose a person first', 'Search for who is taking the equipment.', 'error');
   if (!Cart.items.length) return toastMsg('The cart is empty', 'Add at least one item.', 'error');
@@ -178,14 +179,89 @@ async function doCheckout() {
   document.getElementById('loanee-input').focus();
 }
 
-// ── Check in ────────────────────────────────────────────
-function renderCheckin() {
+// ── Check in ───────────────────────────
+// Everything currently out, shown by default on the check-in tab. Before
+// this, the panel said "search for an asset or a person" — which is the
+// wrong default when the common job is "this came back, take it". Most
+// returns are now two clicks: Check in, then confirm.
+//
+// The searched view still wins when there is one: picking a person is how
+// you take back five things at once with conditions on each.
+let outNow = [];
+
+async function loadOutNow() {
+  const { data, error } = await api('/loans/open');
+  outNow = (error ? [] : (data.rows || []));
+  if (!checkinItems.length) renderCheckin();
+}
+
+function renderOutNowPanel() {
   const panel = document.getElementById('checkin-panel');
-  if (!checkinItems.length) {
+  if (!outNow.length) {
     panel.innerHTML = `<div class="card"><div class="small muted" style="padding:26px 4px;text-align:center">
-      Search for an asset or a person on the left to see what's out.</div></div>`;
+      Nothing is checked out right now.</div></div>`;
     return;
   }
+  const rows = outNow.map(v => `
+    <tr${v.overdue ? ' style="background:var(--redbg)"' : ''}>
+      <td style="width:56px">${assetThumb(v.primary_photo_url, 40)}</td>
+      <td>
+        <div style="font-weight:600">${esc(v.asset_title)}</div>
+        <div class="small muted mono">${esc(v.asset_tag)}</div>
+        ${assetMarkings(v)}
+      </td>
+      <td>
+        <div class="small"><b>${esc(v.loanee_name)}</b></div>
+        <div class="small ${v.overdue ? '' : 'muted'}" style="${v.overdue ? 'color:var(--red);font-weight:600' : ''}">
+          out ${esc(fmtAgo(v.checked_out_at))}${v.due_at ? ` · due ${esc(fmtWhen(v.due_at))}` : ''}${v.overdue ? ' · OVERDUE' : ''}
+        </div>
+      </td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-sm btn-success"
+          onclick="quickCheckin('${v.loan_item_id}')">
+          <i class="fa-solid fa-arrow-right-to-bracket"></i> Check in</button>
+      </td>
+    </tr>`).join('');
+
+  panel.innerHTML = `
+    <div class="card">
+      <div class="section-title"><i class="fa-solid fa-person-walking-luggage"></i> Out now (${outNow.length})</div>
+      <div class="small muted" style="margin-bottom:10px">
+        Click Check in to take something back. To return several at once, or to
+        record damage, find the person on the left instead.
+      </div>
+      <div style="overflow-x:auto"><table class="tbl">
+        <thead><tr><th></th><th>Item</th><th>Who has it</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+}
+
+// Two clicks: the button, then the confirmation. No condition picker here
+// on purpose — this is the "it came back fine" path, and anything that did
+// not come back fine deserves the full form, which is one click further on.
+async function quickCheckin(loanItemId) {
+  const v = outNow.find(x => x.loan_item_id === loanItemId);
+  if (!v) return;
+  const ok = await confirmModal(
+    `${v.asset_tag} — ${v.asset_title}, back from ${v.loanee_name}.`,
+    { title: 'Check this in?', danger: false, confirmLabel: 'Check it in' });
+  if (!ok) return;
+
+  const { data, error } = await api('/checkin', 'POST', {
+    loan_item_ids: [loanItemId],
+    per_item: [{ loan_item_id: loanItemId, in_condition: null }],
+  });
+  if (error) return toastMsg('Could not check that in', error, 'error');
+  toastMsg('Back in', `${v.asset_tag} is on the shelf.`, 'ok');
+  outNow = outNow.filter(x => x.loan_item_id !== loanItemId);
+  renderCheckin();
+  loadOutNow();
+}
+
+function renderCheckin() {
+  const panel = document.getElementById('checkin-panel');
+  if (!checkinItems.length) return renderOutNowPanel();
   const rows = checkinItems.map(v => `
     <tr>
       <td style="width:38px">
@@ -284,9 +360,11 @@ async function doCheckin() {
   const done = new Set(data.checked_in.map(i => i.id));
   checkinItems = checkinItems.filter(v => !done.has(v.loan_item_id));
   renderCheckin();
+  // The out-now list behind this view is now stale by exactly these items.
+  loadOutNow();
 }
 
-// ── Boot ────────────────────────────────────────────────
+// ── Boot ────────────────────────────────
 (async function init() {
   if (!me) return;
   document.getElementById('operator-name').textContent = me.full_name || me.email;
@@ -302,6 +380,9 @@ async function doCheckin() {
   Cart.load();
   renderLoanee();
   await refreshCart();
+
+  // What is out, on the check-in side, without anyone searching first.
+  loadOutNow();
 
   // Check-out pickers
   attachPicker(document.getElementById('loanee-input'), {
