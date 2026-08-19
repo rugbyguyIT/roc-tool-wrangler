@@ -78,9 +78,11 @@ a{color:var(--orange);text-decoration:none} a:hover{text-decoration:underline}
 /* When the mark is the badge itself, the orange tile behind it fights the
    artwork — drop the gradient and the padding it needed. */
 .brand-mark:has(img){background:none;box-shadow:none;padding:0}
-.brand-word{display:flex;flex-direction:column;line-height:1.15}
+/* The two lines were set at 1.15 with no gap, which reads as one crowded
+   block at a glance rather than a name with a subtitle under it. */
+.brand-word{display:flex;flex-direction:column;justify-content:center;line-height:1.25;gap:3px}
 .brand-word b{font-family:'Oswald',sans-serif;font-weight:600;color:#fff;font-size:15px;letter-spacing:.05em}
-.brand-word span{font-size:9px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:rgba(255,255,255,0.45)}
+.brand-word span{font-size:9px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:rgba(255,255,255,0.45);line-height:1.1}
 .topnav-links{display:flex;align-items:center;gap:2px;flex:1;overflow:visible;padding:0 12px;height:100%}
 .nav-group{position:relative;height:100%;display:flex;align-items:center;flex-shrink:0}
 .topnav .nav-item{
@@ -119,11 +121,12 @@ a{color:var(--orange);text-decoration:none} a:hover{text-decoration:underline}
    (currently Loanees). These class names were in the markup but had no
    rules at all, so the heading sat flush against the nav and the action
    buttons ran into the card below them. */
-.page{padding:24px 28px 40px;flex:1;max-width:1280px;width:100%;margin:0 auto}
+.page{padding:32px 28px 40px;flex:1;max-width:1280px;width:100%;margin:0 auto}
 .page-head{display:flex;align-items:flex-start;justify-content:space-between;
-  gap:14px;flex-wrap:wrap;margin-bottom:20px}
-.page-head .page-title{font-size:var(--fs-2xl);margin-bottom:2px}
-.page-head .pill-row{flex-shrink:0}
+  gap:18px;flex-wrap:wrap;margin-bottom:24px}
+.page-head .page-title{font-size:var(--fs-2xl);margin-bottom:6px;line-height:1.25}
+.page-head .small{line-height:1.5}
+.page-head .pill-row{flex-shrink:0;gap:8px;padding-top:4px}
 
 /* ── Buttons ── */
 .btn{padding:8px 16px;border-radius:9px;font-size:var(--fs-sm);font-weight:500;border:1px solid var(--border2);
@@ -359,7 +362,7 @@ a{color:var(--orange);text-decoration:none} a:hover{text-decoration:underline}
   50%{box-shadow:0 0 0 1px rgba(245,166,35,0.36),0 0 80px rgba(239,118,34,0.36),inset 0 2px 12px rgba(0,0,0,0.55)}}
 .auth-orb-logo{width:88%;height:88%;object-fit:contain;filter:drop-shadow(0 2px 10px rgba(0,0,0,0.5))}
 
-/* ── Login badge ─────────────────────────────────────────────────
+/* ── Login badge ──────────────────────────────────────────────
    The crest replaces the old circular orb. Two stacked drop-shadows,
    both offset down and to the right: a tight dark one to seat the badge
    against the page, and a wider soft one for depth. drop-shadow rather
@@ -557,7 +560,7 @@ a{color:var(--orange);text-decoration:none} a:hover{text-decoration:underline}
 }
 
 
-/* ── Roster column mapping ────────────────────────────────────────────────
+/* ── Roster column mapping ───────────────────────────────────────────────
    Two panels: the spreadsheet's columns on the left, the app's fields on
    the right. Drag to connect. Tap-to-select then tap-to-place is a real
    fallback, not a nicety — HTML5 drag-and-drop does not fire on touch,
@@ -609,7 +612,7 @@ a{color:var(--orange);text-decoration:none} a:hover{text-decoration:underline}
 .map-empty { font-size:12px; color:var(--muted2); padding:10px 2px; }
 
 
-/* ── Sortable table headers + row selection ─────────────────────────────────── */
+/* ── Sortable table headers + row selection ───────────────────────────────── */
 .th-sortable { white-space:nowrap; vertical-align:top; }
 .th-sortable .th-label { margin-bottom:4px; }
 .th-sortable.is-sorted .th-label { color:var(--orange); }
