@@ -130,9 +130,20 @@ app.http('loanExtend', {
 
 // Everything currently out. This is what the leader PWA polls, so it is
 // readable by every role including the read-only leader.
-app.http('loansOpen', {
-  methods: ['GET'], authLevel: 'anonymous', route: 'loans/open',
-  handler: async (request) => {
+// ═════════════════════════════════════════════════════════════════════
+// 'loans/open' and 'loans/{id}' both match GET /api/loans/open, and the
+// host does NOT reliably prefer the literal — in production the template
+// won, so the board's request arrived here as id="open" and Postgres
+// answered "invalid input syntax for type uuid". A 500 on the one screen
+// leadership opens, and on the counter.
+//
+// Rather than depend on route precedence, the literal handler is a plain
+// function that BOTH registrations call. Whichever way the host resolves
+// it, the same code runs. The same shape is used in loanees.js and
+// assets.js, which had the identical collision.
+// ═════════════════════════════════════════════════════════════════════
+async function openLoansHandler(request) {
+  {
     const { error, status } = await requireAuth(request);
     if (error) return err(error, status);
     const p = qs(request);
@@ -150,7 +161,12 @@ app.http('loansOpen', {
          (SELECT count(*) FROM public.assets WHERE status='available')::int      AS available,
          (SELECT count(*) FROM public.assets WHERE status='maintenance')::int    AS maintenance`);
     return json({ rows: r.rows, stats: stats.rows[0] });
-  },
+  }
+}
+
+app.http('loansOpen', {
+  methods: ['GET'], authLevel: 'anonymous', route: 'loans/open',
+  handler: openLoansHandler,
 });
 
 app.http('loansList', {
@@ -193,8 +209,16 @@ app.http('loansList', {
 app.http('loansGet', {
   methods: ['GET'], authLevel: 'anonymous', route: 'loans/{id}',
   handler: async (request) => {
+    // See the note above openLoansHandler: this template also matches
+    // /api/loans/open, and in production it is the one that wins.
+    if (request.params.id === 'open') return openLoansHandler(request);
+
     const { error, status } = await requireAuth(request);
     if (error) return err(error, status);
+    // Anything that is not a UUID cannot be a loan id. Answer 404 rather
+    // than handing it to Postgres, which raises 22P02 and surfaces as a
+    // 500 with a database error message in it.
+    if (!uuidOrNull(request.params.id)) return err('Loan not found', 404);
     const r = await query(
       `SELECT l.*, ln.full_name AS loanee_name, ln.email AS loanee_email,
               ln.phone_mobile AS loanee_phone, ln.sub_committee, ln.position,
