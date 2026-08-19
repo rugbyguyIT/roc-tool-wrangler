@@ -24,7 +24,7 @@
     </div>
     <!-- Filled by renderTopNav(). Deliberately empty: this used to be
          hardcoded, which meant two lists of links that drifted — adding
-         Loanees to the JS one left Admin still showing the old five, so
+         Committee Members to the JS one left Admin still showing the old five, so
          the entry vanished the moment you opened this page. -->
     <div class="topnav-links"></div>
     <div class="topnav-user">
@@ -78,7 +78,7 @@
               <button class="btn btn-sm btn-primary" onclick="newGroup()"><i class="fa-solid fa-plus"></i> Add group</button>
             </div>
             <div class="small muted" style="margin:8px 0 12px">
-              A group holds loanees. Restricting an asset to a group means only those people can be issued it.
+              A group holds committee members. Restricting an asset to a group means only those people can be issued it.
             </div>
             <div id="groups-table"></div>
           </div>
@@ -99,7 +99,7 @@
             <div class="section-title"><i class="fa-solid fa-screwdriver-wrench"></i> Repairs</div>
             <div class="small muted" style="margin:8px 0 12px">
               Assets away being fixed. A repair is not a loan — nobody borrowed it, so these
-              never appear in a loanee's history or count against them.
+              never appear in a committee member's history or count against them.
             </div>
             <div id="repairs-table"></div>
 

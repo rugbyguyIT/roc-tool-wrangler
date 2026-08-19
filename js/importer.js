@@ -51,7 +51,7 @@ function loadXlsx() {
 }
 
 const KIND_LABEL = {
-  loanees: 'loanees',
+  loanees: 'committee members',
   assets: 'assets',
   'group-members': 'group members',
 };
@@ -87,7 +87,7 @@ async function openImport(kind, targetGroupId) {
       <input type="checkbox" name="apply_updates" />
     </label>
     ${isMembers ? `<label class="toggle-row">
-      <span>Also create people who aren't loanees yet
+      <span>Also create people who aren't committee members yet
         <div class="small muted">Off means unknown names are reported as errors instead.</div></span>
       <input type="checkbox" name="create_missing_loanees" checked />
     </label>` : ''}`,
