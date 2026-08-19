@@ -115,6 +115,16 @@ a{color:var(--orange);text-decoration:none} a:hover{text-decoration:underline}
 .main-panel{padding:28px 28px 40px;flex:1;max-width:1280px;width:100%;margin:0 auto}
 .main-panel.narrow{max-width:520px}
 
+/* Pages that carry their own heading instead of the sticky .topbar
+   (currently Loanees). These class names were in the markup but had no
+   rules at all, so the heading sat flush against the nav and the action
+   buttons ran into the card below them. */
+.page{padding:24px 28px 40px;flex:1;max-width:1280px;width:100%;margin:0 auto}
+.page-head{display:flex;align-items:flex-start;justify-content:space-between;
+  gap:14px;flex-wrap:wrap;margin-bottom:20px}
+.page-head .page-title{font-size:var(--fs-2xl);margin-bottom:2px}
+.page-head .pill-row{flex-shrink:0}
+
 /* ── Buttons ── */
 .btn{padding:8px 16px;border-radius:9px;font-size:var(--fs-sm);font-weight:500;border:1px solid var(--border2);
   background:var(--surface);cursor:pointer;color:var(--text);font-family:inherit;
@@ -137,6 +147,13 @@ a{color:var(--orange);text-decoration:none} a:hover{text-decoration:underline}
   border:1px solid rgba(255,255,255,0.80);border-radius:var(--r3);padding:20px 22px;box-shadow:var(--card-shadow);
   transition:transform .22s ease,box-shadow .22s ease,border-color .22s}
 .card:hover{transform:translateY(-3px);box-shadow:var(--card-shadow-hover);border-color:rgba(239,118,34,0.25)}
+/* A card with a type-ahead dropdown open has to paint above its siblings.
+   .card sets backdrop-filter, which creates a stacking context, so the
+   dropdown's own z-index is trapped inside this card and the NEXT card in
+   the DOM covers it — which is what hid the lower half of the person
+   picker behind "2 · What are they taking?". Raising the card itself is
+   the only thing that escapes that trap. js/picker.js adds the class. */
+.card.pk-open{position:relative;z-index:40}
 .card+.card{margin-top:12px}
 .card-sm{padding:13px 16px}
 .section-title{font-size:var(--fs-lg);font-weight:700;letter-spacing:-.3px;margin-bottom:12px;display:flex;align-items:center;gap:9px}
@@ -342,7 +359,7 @@ a{color:var(--orange);text-decoration:none} a:hover{text-decoration:underline}
   50%{box-shadow:0 0 0 1px rgba(245,166,35,0.36),0 0 80px rgba(239,118,34,0.36),inset 0 2px 12px rgba(0,0,0,0.55)}}
 .auth-orb-logo{width:88%;height:88%;object-fit:contain;filter:drop-shadow(0 2px 10px rgba(0,0,0,0.5))}
 
-/* ── Login badge ─────────────────────────────────────────────────────
+/* ── Login badge ─────────────────────────────────────────────────
    The crest replaces the old circular orb. Two stacked drop-shadows,
    both offset down and to the right: a tight dark one to seat the badge
    against the page, and a wider soft one for depth. drop-shadow rather
@@ -592,7 +609,7 @@ a{color:var(--orange);text-decoration:none} a:hover{text-decoration:underline}
 .map-empty { font-size:12px; color:var(--muted2); padding:10px 2px; }
 
 
-/* ── Sortable table headers + row selection ──────────────────────────────── */
+/* ── Sortable table headers + row selection ─────────────────────────────────── */
 .th-sortable { white-space:nowrap; vertical-align:top; }
 .th-sortable .th-label { margin-bottom:4px; }
 .th-sortable.is-sorted .th-label { color:var(--orange); }
