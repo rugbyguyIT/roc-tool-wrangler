@@ -34,26 +34,56 @@ app.http('usersList', {
     const { error, status } = await requireRole(request, 'admin');
     if (error) return err(error, status);
     const p = qs(request);
-    const role = p.get('role');
     const st = p.get('status');
     const q = (p.get('q') || '').trim();
+
+    // Role arrives as a repeated parameter (?role=admin&role=staff) so the
+    // tick list can pass any subset. No values means no filter, which is
+    // what "(All roles)" sends — deliberately not the same as sending all
+    // three, so a role added later is included rather than silently dropped.
+    const roles = p.getAll('role').filter(r => ROLES.includes(r));
 
     // Digits are passed separately so a purely alphabetic search never
     // reaches the phone clause. Deriving them inside SQL would turn a
     // search for "kyle" into LIKE '%%', which matches every row.
     const digits = q.replace(/\D/g, '');
 
-    const limit = Math.min(parseInt(p.get('limit') || '25', 10) || 25, 500);
+    // Whitelist, not interpolation: `sort` reaches SQL as a key into a fixed
+    // map, so a crafted value can only ever miss and fall back. Same shape
+    // as the Loanees list, because the two tables are read the same way.
+    const SORTS = {
+      first_name:    'first_name, last_name',
+      last_name:     'last_name, first_name',
+      full_name:     'full_name',
+      email:         'email',
+      phone_mobile:  'phone_mobile',
+      member_number: 'member_number',
+      // By rank, not alphabetically by the stored value. The stored values
+      // sort admin, leader, staff; the rank sorts them the way they read on
+      // screen — Administrator, Base, Leadership.
+      role:          `CASE role WHEN 'admin' THEN 1 WHEN 'staff' THEN 2 ELSE 3 END, last_name, first_name`,
+      status:        'status, last_name',
+      last_login_at: 'last_login_at',
+    };
+    const sortKey = SORTS[p.get('sort')] ? p.get('sort') : 'role';
+    const dir = p.get('dir') === 'desc' ? 'DESC' : 'ASC';
+    // NULLS LAST in both directions: a blank member number, or someone who
+    // has never signed in, should never be the first thing you see when you
+    // sort by that column.
+    const orderBy = SORTS[sortKey].split(', ')
+      .map(c => `${c} ${dir} NULLS LAST`).join(', ');
+
+    const limit = Math.min(parseInt(p.get('limit') || '10', 10) || 10, 500);
     const offset = Math.max(parseInt(p.get('offset') || '0', 10) || 0, 0);
 
     const params = [
-      ROLES.includes(role) ? role : null,
+      roles.length ? roles : null,
       ['active', 'inactive'].includes(st) ? st : null,
       q || null,
       digits,
     ];
     const WHERE_USERS = `
-       WHERE ($1::text IS NULL OR role = $1)
+       WHERE ($1::text[] IS NULL OR role = ANY($1))
          AND ($2::text IS NULL OR status = $2)
          AND ($3::text IS NULL OR (
                   full_name     ILIKE '%'||$3||'%'
@@ -69,15 +99,33 @@ app.http('usersList', {
               status, member_number, last_login_at, created_at
        FROM public.profiles
        ${WHERE_USERS}
-       ORDER BY CASE role WHEN 'admin' THEN 1 WHEN 'staff' THEN 2 ELSE 3 END, last_name, first_name
+       ORDER BY ${orderBy}
        LIMIT $5 OFFSET $6`,
       [...params, limit, offset]
     );
     const total = await query(
       `SELECT count(*)::int AS n FROM public.profiles ${WHERE_USERS}`, params);
+
+    // Counts for the Role tick list, over the SAME predicate but with the
+    // role filter itself removed ($1 forced NULL). A filter panel whose own
+    // options disappear as you tick them cannot be widened again without
+    // clearing it first, which is the one way to make a facet unusable.
+    const facet = await query(
+      `SELECT role, count(*)::int AS n FROM public.profiles ${WHERE_USERS} GROUP BY role`,
+      [null, params[1], params[2], params[3]]);
+    const byRole = Object.fromEntries(facet.rows.map(x => [x.role, x.n]));
+
     // { rows, total } rather than a bare array — the list is paged now, so
     // the client needs to know how many there are beyond this page.
-    return json({ rows: r.rows, total: total.rows[0].n });
+    return json({
+      rows: r.rows,
+      total: total.rows[0].n,
+      sort: sortKey,
+      dir: dir.toLowerCase(),
+      // Every role is present with a count, zeros included, so a role nobody
+      // holds yet is still tickable rather than missing from the panel.
+      role_counts: ROLES.map(role => ({ role, n: byRole[role] || 0 })),
+    });
   },
 });
 
