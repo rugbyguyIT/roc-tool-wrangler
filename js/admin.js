@@ -176,20 +176,46 @@ const ROLE_LABEL = { admin: 'Administrator', staff: 'Base', leader: 'Leadership'
 
 let USER_Q = '';
 let USER_Q_TIMER = null;
+// Same shape as the Loanees page: 25 to start, and the reader chooses.
+const USER_PAGE_SIZES = [25, 50, 100, 500];
+let USER_PAGE = { limit: 25, offset: 0, total: 0 };
 
 // Typing filters server-side rather than in the browser: with the roster
 // loaded this list is hundreds of accounts, and the search has to reach
 // member numbers and phone digits that aren't rendered in the table.
 function setUserSearch(v) {
   USER_Q = v;
+  USER_PAGE.offset = 0;   // a new search always starts at the first page
   clearTimeout(USER_Q_TIMER);
   USER_Q_TIMER = setTimeout(loadUsers, 220);
 }
 
+function setUserPageSize(n) {
+  // Keep the reader near where they were rather than throwing them back to
+  // the top — same rule as the Loanees pager.
+  const firstVisible = USER_PAGE.offset;
+  USER_PAGE.limit = parseInt(n, 10) || 25;
+  USER_PAGE.offset = Math.floor(firstVisible / USER_PAGE.limit) * USER_PAGE.limit;
+  loadUsers();
+}
+
+function userPageBy(dir) {
+  const next = USER_PAGE.offset + dir * USER_PAGE.limit;
+  if (next < 0 || next >= USER_PAGE.total) return;
+  USER_PAGE.offset = next;
+  loadUsers();
+}
+
 async function loadUsers() {
-  const qsParam = USER_Q.trim() ? `?q=${encodeURIComponent(USER_Q.trim())}` : '';
-  const { data, error } = await api('/users' + qsParam);
+  const p = new URLSearchParams({
+    limit: String(USER_PAGE.limit), offset: String(USER_PAGE.offset),
+  });
+  if (USER_Q.trim()) p.set('q', USER_Q.trim());
+  const { data: payload, error } = await api(`/users?${p.toString()}`);
   if (error) return;
+  // The endpoint returns { rows, total } now that the list is paged.
+  const data = payload.rows || [];
+  USER_PAGE.total = payload.total ?? data.length;
 
   // Rebuilt on every keystroke, so the input is restored and refocused
   // rather than being torn out from under the cursor.
@@ -219,10 +245,53 @@ async function loadUsers() {
           <button class="btn btn-sm" onclick="editUser('${u.id}')" title="Edit"><i class="fa-solid fa-pen"></i></button>
           <button class="btn btn-sm" onclick="resetPassword('${u.id}','${esc(u.full_name)}')" title="Reset password"><i class="fa-solid fa-key"></i></button>
           <button class="btn btn-sm" onclick="forceLogout('${u.id}','${esc(u.full_name)}')" title="Sign them out everywhere"><i class="fa-solid fa-power-off"></i></button>
-          ${u.id !== me.id ? `<button class="btn btn-sm btn-danger" onclick="toggleUser('${u.id}','${u.status}','${esc(u.full_name)}')" title="${u.status === 'active' ? 'Disable' : 'Enable'}"><i class="fa-solid fa-${u.status === 'active' ? 'user-slash' : 'user-check'}"></i></button>` : ''}
+          ${u.id !== me.id ? `<button class="btn btn-sm" onclick="toggleUser('${u.id}','${u.status}','${esc(u.full_name)}')" title="${u.status === 'active' ? 'Disable' : 'Enable'}"><i class="fa-solid fa-${u.status === 'active' ? 'user-slash' : 'user-check'}"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="deleteUser('${u.id}','${esc(u.full_name)}')" title="Delete this account"><i class="fa-solid fa-trash"></i></button>` : ''}
         </td>
-      </tr>`).join('')}</tbody></table></div>`;
+      </tr>`).join('')}</tbody></table></div>` + userPager();
   restoreUserSearchFocus();
+}
+
+function userPager() {
+  const { limit, offset, total } = USER_PAGE;
+  const from = total === 0 ? 0 : offset + 1;
+  const to = Math.min(offset + limit, total);
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.floor(offset / limit) + 1;
+  return `
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px">
+      <div class="small muted">
+        ${total ? `Showing <b>${from}–${to}</b> of <b>${total}</b>` : 'Nothing to show'}
+        ${pages > 1 ? ` · page ${page} of ${pages}` : ''}
+      </div>
+      <div style="flex:1"></div>
+      <div class="small muted">Per page</div>
+      <select class="form-input" style="width:auto;padding:6px 10px" onchange="setUserPageSize(this.value)">
+        ${USER_PAGE_SIZES.map(n => `<option value="${n}"${n === limit ? ' selected' : ''}>${n}</option>`).join('')}
+      </select>
+      <button class="btn btn-sm" ${offset === 0 ? 'disabled' : ''} onclick="userPageBy(-1)">
+        <i class="fa-solid fa-chevron-left"></i> Previous</button>
+      <button class="btn btn-sm" ${to >= total ? 'disabled' : ''} onclick="userPageBy(1)">
+        Next <i class="fa-solid fa-chevron-right"></i></button>
+    </div>`;
+}
+
+// Deleting an account is not the same as disabling one, so it asks for the
+// word to be typed. The server refuses without it too, and it will disable
+// rather than delete anyone who has worked the counter — their name has to
+// stay attached to the check-outs they did.
+async function deleteUser(id, name) {
+  const ok = await typedDeleteModal(`Delete ${name}?`,
+    `<b>This removes the account permanently.</b> If ${esc(name)} has ever checked
+     equipment in or out, the account is disabled instead so that history keeps
+     their name on it — you'll be told which happened.`,
+    { submitLabel: 'Delete account' });
+  if (!ok) return;
+
+  const { data, error } = await api(`/users/${id}?confirm=DELETE`, 'DELETE');
+  if (error) return toastMsg('Not deleted', error, 'error');
+  toastMsg(data.deleted ? 'Account deleted' : 'Account disabled instead', data.message, 'ok');
+  loadUsers();
 }
 
 // Put the caret back where it was. Without this, every debounced reload
@@ -375,8 +444,10 @@ function suggestPassword() {
 }
 
 async function editUser(id) {
-  const { data: all } = await api('/users');
-  const u = all.find(x => x.id === id);
+  // The list is paged now, so it cannot be searched client-side for the id
+  // — the row being edited may not be on the page that was last fetched.
+  const { data: all } = await api(`/users?limit=500`);
+  const u = (all.rows || []).find(x => x.id === id);
   if (!u) return;
   const form = await formModal(`Edit ${u.full_name}`, userFields(u), { icon: 'fa-pen' });
   if (!form) return;

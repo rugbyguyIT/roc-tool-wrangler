@@ -164,6 +164,34 @@ function _openUiModal(innerHtml, onMount, onEscape, maxWidth) {
   return overlay;
 }
 
+// Destructive confirmation that costs a deliberate act, not one click.
+// Resolves true only when DELETE was typed exactly; the server checks the
+// same word again, because a confirmation the browser owns is a guard
+// against a slip of the mouse and nothing more.
+//
+// `warning` is the sentence explaining what will actually happen — say the
+// consequence, not "are you sure".
+async function typedDeleteModal(title, warning, opts) {
+  opts = opts || {};
+  const form = await formModal(title, `
+    <div class="card card-sm" style="border-left:3px solid var(--red);margin-bottom:14px">
+      <div class="small">${warning}</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Type DELETE to confirm *</label>
+      <input class="form-input" name="confirm" autocomplete="off" placeholder="DELETE"
+             spellcheck="false" required />
+    </div>`,
+    { icon: 'fa-triangle-exclamation', submitLabel: opts.submitLabel || 'Delete', wide: false });
+  if (!form) return false;
+  const typed = form.querySelector('[name="confirm"]').value.trim();
+  if (typed !== 'DELETE') {
+    toastMsg('Not deleted', 'Type DELETE exactly to confirm.', 'error');
+    return false;
+  }
+  return true;
+}
+
 function confirmModal(message, opts) {
   opts = opts || {};
   const danger = opts.danger !== false;

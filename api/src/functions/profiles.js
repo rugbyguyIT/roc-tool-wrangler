@@ -43,10 +43,16 @@ app.http('usersList', {
     // search for "kyle" into LIKE '%%', which matches every row.
     const digits = q.replace(/\D/g, '');
 
-    const r = await query(
-      `SELECT id, email, first_name, last_name, full_name, phone_mobile, role, photo_url,
-              status, member_number, last_login_at, created_at
-       FROM public.profiles
+    const limit = Math.min(parseInt(p.get('limit') || '25', 10) || 25, 500);
+    const offset = Math.max(parseInt(p.get('offset') || '0', 10) || 0, 0);
+
+    const params = [
+      ROLES.includes(role) ? role : null,
+      ['active', 'inactive'].includes(st) ? st : null,
+      q || null,
+      digits,
+    ];
+    const WHERE_USERS = `
        WHERE ($1::text IS NULL OR role = $1)
          AND ($2::text IS NULL OR status = $2)
          AND ($3::text IS NULL OR (
@@ -56,14 +62,22 @@ app.http('usersList', {
                OR coalesce(member_number,'') ILIKE $3||'%'
                OR ($4::text <> '' AND regexp_replace(coalesce(phone_mobile,''), '\\D', '', 'g')
                                       LIKE '%'||$4||'%')
-             ))
-       ORDER BY CASE role WHEN 'admin' THEN 1 WHEN 'staff' THEN 2 ELSE 3 END, last_name, first_name`,
-      [ROLES.includes(role) ? role : null,
-       ['active', 'inactive'].includes(st) ? st : null,
-       q || null,
-       digits]
+             ))`;
+
+    const r = await query(
+      `SELECT id, email, first_name, last_name, full_name, phone_mobile, role, photo_url,
+              status, member_number, last_login_at, created_at
+       FROM public.profiles
+       ${WHERE_USERS}
+       ORDER BY CASE role WHEN 'admin' THEN 1 WHEN 'staff' THEN 2 ELSE 3 END, last_name, first_name
+       LIMIT $5 OFFSET $6`,
+      [...params, limit, offset]
     );
-    return json(r.rows);
+    const total = await query(
+      `SELECT count(*)::int AS n FROM public.profiles ${WHERE_USERS}`, params);
+    // { rows, total } rather than a bare array — the list is paged now, so
+    // the client needs to know how many there are beyond this page.
+    return json({ rows: r.rows, total: total.rows[0].n });
   },
 });
 
@@ -187,6 +201,76 @@ app.http('usersUpdate', {
       if (e.code === '23505') return err('Someone already has an account with that email address', 409);
       throw e;
     }
+  },
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Delete an account.
+//
+// Same rule as loanees, for the same reason: an account that has ever
+// worked the counter is NEVER hard-deleted. loans.checked_out_by is NOT
+// NULL with no ON DELETE clause, so removing that row would either fail
+// outright or take custody history with it — and "who handed out the
+// forklift in 2025" has to stay answerable. Those accounts are
+// deactivated instead, and the response says which happened, so "delete"
+// never quietly means something else.
+//
+// The typed confirmation is verified HERE, not only in the browser. A
+// confirmation that exists only in the UI is not a safeguard against
+// anything except a misclick.
+// ═══════════════════════════════════════════════════════════════════════
+app.http('usersDelete', {
+  methods: ['DELETE'], authLevel: 'anonymous', route: 'users/{id}',
+  handler: async (request) => {
+    const { user, error, status } = await requireRole(request, 'admin');
+    if (error) return err(error, status);
+    const id = request.params.id;
+
+    if (qs(request).get('confirm') !== 'DELETE') {
+      return err('Type DELETE exactly to confirm.');
+    }
+    // Deleting the account you are signed in as would revoke your own
+    // session mid-request and leave the console in a state nobody can
+    // explain. It is also almost never what was meant.
+    if (id === user.sub) return err('You cannot delete the account you are signed in as.', 409);
+
+    const cur = await query(`SELECT full_name, email, role FROM public.profiles WHERE id = $1`, [id]);
+    if (!cur.rows.length) return err('User not found', 404);
+    const who = cur.rows[0];
+
+    // Last admin standing: removing them locks everyone out of settings,
+    // users and lookups permanently, with no way back in through the UI.
+    if (who.role === 'admin') {
+      const admins = await query(
+        `SELECT count(*)::int AS n FROM public.profiles WHERE role = 'admin' AND status = 'active'`);
+      if (admins.rows[0].n <= 1) return err('That is the only active administrator — promote someone else first.', 409);
+    }
+
+    const history = await query(
+      `SELECT (EXISTS (SELECT 1 FROM public.loans      WHERE checked_out_by = $1)
+            OR EXISTS (SELECT 1 FROM public.loan_items WHERE checked_in_by  = $1)) AS has_history`, [id]);
+
+    if (history.rows[0].has_history) {
+      await query(
+        `UPDATE public.profiles
+            SET status = 'inactive', token_version = token_version + 1, updated_at = now()
+          WHERE id = $1`, [id]);
+      await logAudit(request, {
+        profile_id: user.sub, email: user.email, action: 'user_deactivated_not_deleted',
+        detail: `${who.full_name} <${who.email}> has counter history, so the account was disabled instead`,
+      });
+      return json({
+        deleted: false, deactivated: true,
+        message: `${who.full_name} has checked equipment in or out, so the account was disabled rather than deleted — that history stays attached to their name.`,
+      });
+    }
+
+    await query(`DELETE FROM public.profiles WHERE id = $1`, [id]);
+    await logAudit(request, {
+      profile_id: user.sub, email: user.email, action: 'user_deleted',
+      detail: `${who.full_name} <${who.email}> (${who.role})`,
+    });
+    return json({ deleted: true, deactivated: false, message: `${who.full_name} was deleted.` });
   },
 });
 
