@@ -45,7 +45,7 @@ async function loadDashboard() {
 // The member form + actions live in js/loanee-form.js, shared with the
 // dedicated Committee Members page.
 
-// ══ Groups ═══════════════════════════════════════════════
+// ══ Groups ════════════════════════════════════════════════
 async function loadGroups() {
   const { data, error } = await api('/groups');
   if (error) return;
@@ -62,13 +62,21 @@ async function loadGroups() {
 
   document.getElementById('groups-table').innerHTML = GROUPS.length
     ? `<div style="overflow-x:auto"><table class="tbl">
-        <thead><tr><th>Group</th><th>Members</th><th>Restricted assets</th><th></th></tr></thead>
+        <thead><tr><th>Group</th><th>Members</th><th>Restricted assets</th><th>App access</th><th></th></tr></thead>
         <tbody>${GROUPS.map(g => `
           <tr>
             <td><b>${esc(g.name)}</b>${g.description ? `<div class="small muted">${esc(g.description)}</div>` : ''}
                 ${g.active ? '' : '<span class="badge badge-neutral">Inactive</span>'}</td>
             <td><span class="badge badge-active">${g.member_count}</span></td>
             <td>${g.asset_count ? `<span class="badge badge-neutral">${g.asset_count}</span>` : '<span class="muted small">—</span>'}</td>
+            <!-- The roster import puts every member into a group named after
+                 their sub-committee, so this column is really "may this
+                 committee sign in". The count is how many people would lose
+                 access if it were switched off. -->
+            <td>${g.can_login
+              ? `<span class="badge badge-approved"><i class="fa-solid fa-right-to-bracket"></i> Can sign in</span>${
+                  g.login_count ? `<div class="small muted">${g.login_count} account${g.login_count === 1 ? '' : 's'}</div>` : ''}`
+              : '<span class="small muted">No</span>'}</td>
             <td style="text-align:right;white-space:nowrap">
               <button class="btn btn-sm" onclick="groupMembers('${g.id}')"><i class="fa-solid fa-users"></i> Members</button>
               <button class="btn btn-sm" onclick="openImport('group-members','${g.id}')" title="Import members"><i class="fa-solid fa-file-import"></i></button>
@@ -84,7 +92,13 @@ async function newGroup() {
     <div class="form-group"><label class="form-label">Name *</label>
       <input class="form-input" name="name" required placeholder="Forklift Certified" /></div>
     <div class="form-group"><label class="form-label">Description</label>
-      <input class="form-input" name="description" placeholder="Who belongs in here and why" /></div>`,
+      <input class="form-input" name="description" placeholder="Who belongs in here and why" /></div>
+    <label class="toggle-row">
+      <span>Members of this group may sign in to the app
+        <div class="small muted">Off by default. Tick it for the committees that
+        actually use Tool Wrangler.</div></span>
+      <label class="switch"><input type="checkbox" name="can_login" /><span class="slider"></span></label>
+    </label>`,
     { icon: 'fa-plus', submitLabel: 'Create' });
   if (!form) return;
   const { error } = await api('/groups', 'POST', formValues(form));
@@ -102,7 +116,14 @@ async function editGroup(id) {
     <div class="form-group"><label class="form-label">Description</label>
       <input class="form-input" name="description" value="${esc(g.description || '')}" /></div>
     <label class="toggle-row"><span>Active</span>
-      <input type="checkbox" name="active"${g.active ? ' checked' : ''} /></label>`,
+      <input type="checkbox" name="active"${g.active ? ' checked' : ''} /></label>
+    <label class="toggle-row">
+      <span>Members of this group may sign in to the app
+        <div class="small muted">${g.can_login && g.login_count
+          ? `Turning this off signs out ${g.login_count} ${g.login_count === 1 ? 'person' : 'people'} — they will not be able to get back in.`
+          : 'Admins are never affected by this.'}</div></span>
+      <label class="switch"><input type="checkbox" name="can_login"${g.can_login ? ' checked' : ''} /><span class="slider"></span></label>
+    </label>`,
     { icon: 'fa-pen' });
   if (!form) return;
   const { error } = await api(`/groups/${id}`, 'PATCH', formValues(form));

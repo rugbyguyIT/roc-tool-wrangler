@@ -102,7 +102,10 @@ invokes the `{id}` handlers directly with the literal segment instead.
 
 ```bash
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/smoke.js    # 143
+DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/login.js    #  27
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/limits.js   #  32
+DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/percat.js   #  34
+DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/pii-audit.js #  20
 DATABASE_URL=... JWT_SECRET=test node api/test/routing.js                        #  11
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/roster.js   #  47
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/repairs.js  #  38
@@ -110,11 +113,11 @@ DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/users.js   
 node api/test/routes-audit.js    # every mutating route has a role gate
 ```
 
-**Run them in that order.** `limits.js` and `routing.js` both reuse the admin
-`smoke.js` bootstraps rather than creating a second one, so they must come
-immediately after it — `users.js` disables and deletes accounts, and running
-either of them afterwards fails at sign-in with a message that looks nothing
-like the real cause.
+**Run them in that order.** `login.js`, `limits.js` and `routing.js` all reuse
+the admin `smoke.js` bootstraps rather than creating a second one, so they
+must come immediately after it — `users.js` disables and deletes accounts, and
+running any of them afterwards fails at sign-in with a message that looks
+nothing like the real cause.
 
 A local Postgres is enough for all of them:
 
@@ -179,6 +182,20 @@ substantial changes now go through a branch instead:
 
 Production never sees an unverified file. PRs #2 and #3 both went this way,
 and both had banner drift that would have been invisible on a direct push.
+
+**Step 3 catches worse things than drift.** On the `name-login` branch the
+comparison reported `staticwebapp.config.json` differing by eight lines —
+`navigationFallback` and `responseOverrides` blocks that had never existed in
+the file. Not mis-transcribed characters: invented configuration, typed
+confidently into `push_files` alongside the one route that was actually
+wanted. A rewrite-everything-to-index.html fallback on a Static Web App is
+not a cosmetic difference; it changes what every unmatched URL returns.
+
+So the check is not "is the drift cosmetic". It is **byte-identical, or find
+out exactly why not**. `diff` the branch copy against `origin/main` as well as
+against the local file — that is what showed this block was new rather than
+edited, and the difference between those two readings is the difference
+between "accept it" and "re-push".
 
 ### Driving the front end in this sandbox
 
