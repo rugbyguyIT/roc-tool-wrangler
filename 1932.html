@@ -41,7 +41,12 @@
     .door-1932 .auth-wrap::before{
       background:
         radial-gradient(ellipse 85% 60% at 50% 0%, rgba(214,26,38,0.62) 0%, transparent 66%),
-        radial-gradient(ellipse 75% 50% at 50% 100%, rgba(150,18,26,0.50) 0%, transparent 66%);
+        /* The bottom glow is deliberately weaker and darker than the top
+           one. Lit from above, the way the badge's own shadow already
+           says the light is coming from. Matching the two made the foot
+           of the page go pink, because a mid red at low opacity over
+           near-black lightens toward pink rather than deepening. */
+        radial-gradient(ellipse 62% 38% at 50% 100%, rgba(104,10,16,0.34) 0%, transparent 62%);
     }
 
     /* A thin band of hazard stripes across the top of the card. It is the
