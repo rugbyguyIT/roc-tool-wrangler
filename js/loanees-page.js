@@ -1,4 +1,4 @@
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 // Committee Members — the whole roster, on its own page.
 //
 // 493 people is too many for a section buried in the admin console, and
@@ -8,7 +8,7 @@
 //
 // The form and the row actions come from js/loanee-form.js, shared with
 // the admin console, so a member record has one definition.
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 const me = requireLogin('staff', 'admin');
 
 const PAGE_SIZES = [25, 50, 100, 250, 500];
@@ -37,14 +37,21 @@ let SELECTED = new Set();
 let PAGE_IDS = [];      // ids in the order currently on screen
 let LAST_CLICKED = null; // index of the last ticked row, for shift-range
 
+// A Base member gets a name, a phone number and a title. The API enforces
+// that; this only decides what the table draws, so the columns are REMOVED
+// rather than rendered as a row of dashes. A column full of "—" reads as
+// "we have no data on these people", which is a different and wrong thing
+// to tell whoever is standing at the counter.
+const IS_BASE = me && me.role === 'staff';
+
 const COLUMNS = [
   { key: 'first_name',    label: 'First' },
   { key: 'last_name',     label: 'Last' },
-  { key: 'member_number', label: 'Member #' },
-  { key: 'email',         label: 'Email' },
+  { key: 'member_number', label: 'Member #',  adminOnly: true },
+  { key: 'email',         label: 'Email',     adminOnly: true },
   { key: 'phone_mobile',  label: 'Phone' },
   { key: 'title',         label: 'Title' },
-  { key: 'sub_committee', label: 'Committee', filter: 'committees' },
+  { key: 'sub_committee', label: 'Committee', filter: 'committees', adminOnly: true },
   { key: null,            label: 'Groups' },
   // No "Out" column. What is out is a question about equipment, and it is
   // answered on the Out Now board and the asset list. Repeating a count
@@ -137,7 +144,7 @@ async function loadLoanees() {
   //
   // Only one column sorts at a time — the API takes a single key — so
   // choosing a direction anywhere clears every other column's selection.
-  const head = COLUMNS.map(c => {
+  const head = COLUMNS.filter(c => !(c.adminOnly && IS_BASE)).map(c => {
     if (!c.key) return `<th>${c.label}</th>`;
     const active = LN.sort === c.key;
     return `<th class="th-sortable${active ? ' is-sorted' : ''}">
@@ -167,16 +174,16 @@ async function loadLoanees() {
         <td><b>${esc(l.first_name || '')}</b>${l.status === 'inactive'
           ? `<div class="small" style="color:var(--amber)">Inactive — ${esc(l.status_reason || 'deactivated')}</div>` : ''}</td>
         <td><b>${esc(l.last_name || '')}</b></td>
-        <td class="small mono">${esc(l.member_number || '—')}</td>
-        <td class="small">${l.email ? esc(l.email) : '<span class="muted">—</span>'}</td>
+        ${IS_BASE ? '' : `<td class="small mono">${esc(l.member_number || '—')}</td>
+        <td class="small">${l.email ? esc(l.email) : '<span class="muted">—</span>'}</td>`}
         <td class="small">${l.phone_mobile ? esc(fmtPhone(l.phone_mobile)) : '<span class="muted">—</span>'}</td>
         <td class="small">${esc(l.title || l.position || '—')}</td>
-        <td class="small">${esc(l.sub_committee || '—')}</td>
+        ${IS_BASE ? '' : `<td class="small">${esc(l.sub_committee || '—')}</td>`}
         <td class="small">${(l.group_names || []).map(g =>
           `<span class="class-chip class-exec">${esc(g)}</span>`).join(' ') || '<span class="muted">—</span>'}</td>
         <td style="text-align:right;white-space:nowrap">
-          <button class="btn btn-sm" onclick="editLoanee('${l.id}')" title="Edit"><i class="fa-solid fa-pen"></i></button>
-          <button class="btn btn-sm" onclick="loaneeGroups('${l.id}')" title="Groups"><i class="fa-solid fa-user-lock"></i></button>
+          ${IS_BASE ? '' : `<button class="btn btn-sm" onclick="editLoanee('${l.id}')" title="Edit"><i class="fa-solid fa-pen"></i></button>
+          <button class="btn btn-sm" onclick="loaneeGroups('${l.id}')" title="Groups"><i class="fa-solid fa-user-lock"></i></button>`}
           <button class="btn btn-sm" onclick="loaneeHistory('${l.id}')" title="History"><i class="fa-solid fa-clock-rotate-left"></i></button>
         </td>
       </tr>`).join('')}</tbody></table></div>`;
@@ -240,7 +247,7 @@ function setPageSize(n) {
   loadLoanees();
 }
 
-// ── Sorting ────────────────────────────────
+// ── Sorting ───────────────────────────────────────────
 // The direction is chosen explicitly, so there is no hidden toggle state.
 // Clearing the active column's select falls back to last name ascending
 // rather than leaving the list in an undefined order.
@@ -265,7 +272,7 @@ function clearSort() {
   loadLoanees();
 }
 
-// ── Selection ──────────────────────────────
+// ── Selection ────────────────────────────────────────
 function rowTick(ev, index, id) {
   // Shift extends from the last row you ticked, exactly like a file list.
   if (ev.shiftKey && LAST_CLICKED !== null) {
@@ -331,7 +338,7 @@ async function deleteSelected() {
   loadLoanees();
 }
 
-// ── Clear roster ─────────────────────────────
+// ── Clear roster ──────────────────────────────────────
 function clearRoster() {
   formModal('Clear the entire roster', `
     <div class="card card-sm" style="border-left:3px solid var(--red);margin-bottom:14px">
@@ -373,7 +380,7 @@ function setStatusFilter(v) {
   loadLoanees();
 }
 
-// ── Boot ─────────────────────────
+// ── Boot ───────────────────────────────
 (async function () {
   brandPage();
 
