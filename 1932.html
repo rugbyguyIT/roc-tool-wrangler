@@ -144,7 +144,14 @@
                placeholder="Bob Smith" required autocomplete="username"
                autocapitalize="words" spellcheck="false" />
 
-        <label class="auth-field-label" for="password">Password</label>
+        <!-- See index.html for why this is a button and why its layout is
+             inline rather than a class in the shared stylesheet. -->
+        <button type="button" class="auth-link" id="not-you" onclick="clearIdentity()"
+                style="display:none;margin:-14px 0 12px auto;padding:6px 2px;min-height:34px;
+                       background:none;border:0;font-family:inherit;text-align:right">Not you?</button>
+
+        <!-- Wording set by js/auth.js — see index.html for why. -->
+        <label class="auth-field-label" for="password" id="password-label">Password</label>
         <div class="auth-pw-wrap">
           <input class="auth-input auth-input-pw" type="password" id="password" name="password"
                  placeholder="••••••••••" required autocomplete="current-password" />
