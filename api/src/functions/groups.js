@@ -27,7 +27,18 @@ app.http('groupsList', {
     const r = await query(
       `SELECT g.*,
               (SELECT count(*) FROM public.group_members gm WHERE gm.group_id = g.id)::int AS member_count,
-              (SELECT count(*) FROM public.asset_groups ag WHERE ag.group_id = g.id)::int  AS asset_count
+              (SELECT count(*) FROM public.asset_groups ag WHERE ag.group_id = g.id)::int  AS asset_count,
+              -- How many people can sign in BECAUSE of this group, and
+              -- would stop being able to if it were unticked. Counted here
+              -- rather than in the browser so the warning on the form is
+              -- about the real roster and not about whatever the page
+              -- happened to have loaded.
+              (SELECT count(*) FROM public.group_members gm
+                 JOIN public.loanees  ln ON ln.id = gm.loanee_id
+                 JOIN public.profiles p  ON p.member_number = ln.member_number
+                WHERE gm.group_id = g.id
+                  AND p.status = 'active' AND p.role <> 'admin'
+                  AND ln.member_number IS NOT NULL)::int AS login_count
        FROM public.groups g ORDER BY g.active DESC, lower(g.name)`);
     return json(r.rows);
   },
@@ -42,8 +53,12 @@ app.http('groupsCreate', {
     if (!body?.name || !String(body.name).trim()) return err('A group name is required');
     try {
       const r = await query(
-        `INSERT INTO public.groups (name, description, created_by) VALUES ($1,$2,$3) RETURNING *`,
-        [String(body.name).trim(), body.description || null, user.sub]);
+        `INSERT INTO public.groups (name, description, can_login, created_by)
+         VALUES ($1,$2,$3,$4) RETURNING *`,
+        // Defaults OFF. Creating a group is a small deliberate act; "and
+        // this one may also sign in to the app" should be a second one,
+        // not something that happens because a field was left out.
+        [String(body.name).trim(), body.description || null, !!body.can_login, user.sub]);
       await logAudit(request, {
         profile_id: user.sub, email: user.email, action: 'group_created', detail: r.rows[0].name });
       return json({ ...r.rows[0], member_count: 0, asset_count: 0 }, 201);
@@ -64,6 +79,7 @@ app.http('groupsUpdate', {
     if (body.name !== undefined) { sets.push(`name = $${i++}`); vals.push(String(body.name).trim()); }
     if (body.description !== undefined) { sets.push(`description = $${i++}`); vals.push(body.description || null); }
     if (body.active !== undefined) { sets.push(`active = $${i++}`); vals.push(!!body.active); }
+    if (body.can_login !== undefined) { sets.push(`can_login = $${i++}`); vals.push(!!body.can_login); }
     if (!sets.length) return err('Nothing to update');
     vals.push(request.params.id);
     try {
