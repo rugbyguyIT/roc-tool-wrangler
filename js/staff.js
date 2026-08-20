@@ -3,11 +3,37 @@
 // This is the screen the app exists for; everything else supports it.
 // ─────────────────────────────────────────────────────────────
 const me = requireLogin('staff', 'admin');
+
+// The big orange button has never had a disabled state — it looks exactly
+// as clickable with an empty cart as with a full one, and there are now
+// three ways to reach it dead (empty cart, a blocked item, a member at
+// their limit). A primary action that looks alive and does nothing is how
+// someone ends up jabbing a tablet at a busy counter.
+//
+// Injected here rather than added to css/style.css so the counter's own
+// ergonomics travel with the counter's own file; fold it into the
+// .drive-action block next time that stylesheet is edited for other reasons.
+(function injectCounterStyles() {
+  if (document.getElementById('counter-styles')) return;
+  const el = document.createElement('style');
+  el.id = 'counter-styles';
+  el.textContent = `
+    .drive-action:disabled{
+      background:var(--surface3); color:var(--muted2);
+      box-shadow:none; cursor:not-allowed;
+    }
+    .drive-action:disabled:active{ transform:none }
+  `;
+  document.head.appendChild(el);
+})();
 let SETTINGS = { default_loan_hours: 12 };
 let checkinItems = [];   // open loan items currently listed on the check-in side
 let checkinContext = ''; // a heading describing where that list came from
+// What the item limit means for whoever is currently chosen, or null when
+// no limit applies to them (an officer, or the rule switched off).
+let limitInfo = null;
 
-// ── View switching ────────────────────────
+// ── View switching ────────────────────────────────
 function setView(v) {
   document.getElementById('view-out').classList.toggle('active', v === 'out');
   document.getElementById('view-in').classList.toggle('active', v === 'in');
@@ -19,7 +45,7 @@ function setView(v) {
   else document.getElementById('in-asset-input')?.focus();
 }
 
-// ── Due date ────────────────────────────
+// ── Due date ────────────────────────────────────
 // Pre-filled to now + the configured default (12 hours). Staff can
 // change it or clear it; a cleared field means an indefinite loan and is
 // sent to the server as an explicit null, not as "unset".
@@ -34,7 +60,7 @@ function setDueTonight() {
   document.getElementById('due-input').value = toLocalInput(d);
 }
 
-// ── Cart rendering ────────────────────────
+// ── Cart rendering ───────────────────────────────
 function renderLoanee() {
   const picked = document.getElementById('loanee-picked');
   const search = document.getElementById('loanee-search');
@@ -64,10 +90,50 @@ function renderLoanee() {
         </div>
       </div>
     </div>`;
+  picked.insertAdjacentHTML('beforeend', limitNoticeHtml());
   picked.style.display = 'block';
   search.style.display = 'none';
   assetInput.disabled = false;
   assetInput.placeholder = 'Search or scan an asset tag, title or serial…';
+}
+
+// The rule, stated on the person's card the moment they are chosen. A
+// refusal that only arrives after the cart is built and the button is
+// clicked is a rule nobody at the counter can plan around.
+function limitNoticeHtml() {
+  if (!limitInfo) return '';
+  const held = limitInfo.holding || [];
+  const rows = held.map(h => `<li style="margin:2px 0">
+      <span class="mono">${esc(h.asset_tag)}</span> — ${esc(h.asset_title)}
+      <span class="muted">· out ${esc(fmtAgo(h.checked_out_at))}${
+        h.due_at ? `, due ${esc(fmtWhen(h.due_at))}` : ''}</span></li>`).join('');
+
+  const rule = limitInfo.per_category
+    ? `${limitInfo.limit} of each kind`
+    : `${limitInfo.limit} item${limitInfo.limit === 1 ? '' : 's'}`;
+
+  if (!limitInfo.at_limit) {
+    if (!held.length) return '';
+    return `<div class="small muted" style="margin-top:10px">
+      <i class="fa-solid fa-circle-info"></i> Already holding ${held.length}. As a
+      ${esc(limitInfo.title)} they may have ${esc(rule)} at a time.</div>`;
+  }
+
+  return `<div class="card card-sm" style="margin-top:12px;border-left:3px solid var(--red)">
+    <div class="small" style="font-weight:700;color:var(--red)">
+      <i class="fa-solid fa-hand"></i> At their limit — nothing more can go out
+    </div>
+    <div class="small muted" style="margin:6px 0 4px">
+      A ${esc(limitInfo.title)} may hold ${esc(rule)} at a time. ${esc(Cart.loanee.full_name)}
+      currently has:
+    </div>
+    <ul class="small" style="margin:0 0 6px 18px;padding:0">${rows}</ul>
+    <div class="small muted">
+      Check one of those in first. If they should not be under this limit, their
+      roster title is what decides it — an admin can change the rule under
+      Admin → Settings.
+    </div>
+  </div>`;
 }
 
 function renderCart() {
@@ -112,8 +178,10 @@ function renderCart() {
       nothing is checked out until everything in the cart is clear.</div>` : ''}`;
 
   // All-or-nothing: the button stays disabled while anything is blocked,
-  // so the failure is visible before the click rather than after it.
-  btn.disabled = blocked.length > 0;
+  // so the failure is visible before the click rather than after it. The
+  // item limit is the same idea — the server refuses it either way, but a
+  // dead button beside a stated reason beats a 409 after the click.
+  btn.disabled = blocked.length > 0 || !!(limitInfo && limitInfo.at_limit);
   label.textContent = `Check Out ${Cart.items.length} Item${Cart.items.length === 1 ? '' : 's'}`;
 }
 
@@ -122,8 +190,18 @@ async function refreshCart() {
   renderCart();
 }
 
+async function loadLimit() {
+  limitInfo = null;
+  if (!Cart.loanee) return renderLoanee();
+  const { data } = await api(`/loanees/${Cart.loanee.id}/limit`);
+  limitInfo = (data && data.applies) ? data : null;
+  renderLoanee();
+  renderCart();
+}
+
 function clearLoanee() {
   Cart.setLoanee(null);
+  limitInfo = null;
   renderLoanee();
   refreshCart();
   document.getElementById('loanee-input').focus();
@@ -133,7 +211,7 @@ function removeItem(id) {
   renderCart();
 }
 
-// ── Check out ───────────────────────────
+// ── Check out ──────────────────────────────────
 async function doCheckout() {
   if (!Cart.loanee) return toastMsg('Choose a person first', 'Search for who is taking the equipment.', 'error');
   if (!Cart.items.length) return toastMsg('The cart is empty', 'Add at least one item.', 'error');
@@ -162,7 +240,19 @@ async function doCheckout() {
       Cart.save();
       renderCart();
     }
-    toastMsg('Nothing was checked out', error, 'error');
+    // The limit refusal carries the list of what they hold; show it as a
+    // dialog rather than a toast, because it is a decision to act on and a
+    // toast disappears before it can be read out to whoever is waiting.
+    if (detail && detail.member_limit) {
+      const held = detail.member_limit.holding || [];
+      await confirmModal(
+        `${error}\n\n${held.map(h => `${h.asset_tag} — ${h.asset_title}`).join('\n')}`,
+        { title: 'Already at their limit', danger: true,
+          confirmLabel: 'OK', cancelLabel: 'Close' });
+      await loadLimit();
+    } else {
+      toastMsg('Nothing was checked out', error, 'error');
+    }
     btn.disabled = false;
     return;
   }
@@ -177,32 +267,42 @@ async function doCheckout() {
   document.getElementById('notes-input').value = '';
   setDue(SETTINGS.default_loan_hours || null);
   document.getElementById('loanee-input').focus();
+  // The Assets Out list beside this form is now short by exactly the items
+  // that just went out — refresh it rather than making anyone wonder.
+  loadOutNow();
+  limitInfo = null;
 }
 
-// ── Check in ───────────────────────────
-// Everything currently out, shown by default on the check-in tab. Before
-// this, the panel said "search for an asset or a person" — which is the
-// wrong default when the common job is "this came back, take it". Most
-// returns are now two clicks: Check in, then confirm.
+// ── Assets Out ────────────────────────────────
+// The same list on BOTH tabs. On check-in it is the default view; on
+// check-out it sits beside the handoff form, because a return that walks
+// up while you are mid-checkout should not cost a tab change and a search.
 //
-// The searched view still wins when there is one: picking a person is how
-// you take back five things at once with conditions on each.
+// One data load, one row renderer, two mount points — a second copy of
+// this would drift, and the half that drifts is the one nobody is
+// looking at.
+//
+// The searched view still wins on the check-in tab when there is one:
+// picking a person is how you take back five things at once with a
+// condition recorded on each.
 let outNow = [];
 
 async function loadOutNow() {
   const { data, error } = await api('/loans/open');
   outNow = (error ? [] : (data.rows || []));
-  if (!checkinItems.length) renderCheckin();
+  renderOutEverywhere();
 }
 
-function renderOutNowPanel() {
-  const panel = document.getElementById('checkin-panel');
-  if (!outNow.length) {
-    panel.innerHTML = `<div class="card"><div class="small muted" style="padding:26px 4px;text-align:center">
-      Nothing is checked out right now.</div></div>`;
-    return;
-  }
-  const rows = outNow.map(v => `
+// Repaint every mount point that is on this page. renderCheckin() is what
+// decides whether the check-in side shows this list or a search result, so
+// it is called rather than the panel renderer directly.
+function renderOutEverywhere() {
+  renderOutNowPanel('out-panel');
+  renderCheckin();
+}
+
+function outRowHtml(v) {
+  return `
     <tr${v.overdue ? ' style="background:var(--redbg)"' : ''}>
       <td style="width:56px">${assetThumb(v.primary_photo_url, 40)}</td>
       <td>
@@ -219,33 +319,52 @@ function renderOutNowPanel() {
       <td style="text-align:right;white-space:nowrap">
         <button class="btn btn-sm btn-success"
           onclick="quickCheckin('${v.loan_item_id}')">
-          <i class="fa-solid fa-arrow-right-to-bracket"></i> Check in</button>
+          <i class="fa-solid fa-arrow-right-to-bracket"></i> Check In</button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+}
 
+function renderOutNowPanel(targetId) {
+  // Both tabs call this; only one of the two mount points exists per view,
+  // and on a page that dropped one entirely this simply does nothing.
+  const panel = document.getElementById(targetId || 'checkin-panel');
+  if (!panel) return;
+
+  if (!outNow.length) {
+    panel.innerHTML = `<div class="card">
+      <div class="section-title"><i class="fa-solid fa-person-walking-luggage"></i> Assets Out</div>
+      <div class="small muted" style="padding:22px 4px;text-align:center">
+        Nothing is checked out right now.</div></div>`;
+    return;
+  }
+
+  const overdue = outNow.filter(v => v.overdue).length;
   panel.innerHTML = `
     <div class="card">
-      <div class="section-title"><i class="fa-solid fa-person-walking-luggage"></i> Out now (${outNow.length})</div>
+      <div class="section-title">
+        <i class="fa-solid fa-person-walking-luggage"></i> Assets Out (${outNow.length})
+        ${overdue ? `<span class="badge badge-no" style="margin-left:8px">${overdue} overdue</span>` : ''}
+      </div>
       <div class="small muted" style="margin-bottom:10px">
-        Click Check in to take something back. To return several at once, or to
-        record damage, find the person on the left instead.
+        Click Check In, then Yes, and it is back on the shelf. To take several
+        back at once, or to record damage, use the Check In tab and find the person.
       </div>
       <div style="overflow-x:auto"><table class="tbl">
         <thead><tr><th></th><th>Item</th><th>Who has it</th><th></th></tr></thead>
-        <tbody>${rows}</tbody>
+        <tbody>${outNow.map(outRowHtml).join('')}</tbody>
       </table></div>
     </div>`;
 }
 
-// Two clicks: the button, then the confirmation. No condition picker here
-// on purpose — this is the "it came back fine" path, and anything that did
-// not come back fine deserves the full form, which is one click further on.
+// Two clicks: Check In, then Yes. No condition picker here on purpose —
+// this is the "it came back fine" path, and anything that did not come back
+// fine deserves the full form, which is one tab away.
 async function quickCheckin(loanItemId) {
   const v = outNow.find(x => x.loan_item_id === loanItemId);
   if (!v) return;
   const ok = await confirmModal(
     `${v.asset_tag} — ${v.asset_title}, back from ${v.loanee_name}.`,
-    { title: 'Check this in?', danger: false, confirmLabel: 'Check it in' });
+    { title: 'Check this in?', danger: false, confirmLabel: 'Yes, check it in' });
   if (!ok) return;
 
   const { data, error } = await api('/checkin', 'POST', {
@@ -254,14 +373,18 @@ async function quickCheckin(loanItemId) {
   });
   if (error) return toastMsg('Could not check that in', error, 'error');
   toastMsg('Back in', `${v.asset_tag} is on the shelf.`, 'ok');
+  // Drop it locally first so the row disappears on the click rather than
+  // one network round trip later, then re-read to pick up anything a
+  // colleague at the other tablet did in the meantime.
   outNow = outNow.filter(x => x.loan_item_id !== loanItemId);
-  renderCheckin();
+  renderOutEverywhere();
   loadOutNow();
 }
 
 function renderCheckin() {
   const panel = document.getElementById('checkin-panel');
-  if (!checkinItems.length) return renderOutNowPanel();
+  if (!panel) return;
+  if (!checkinItems.length) return renderOutNowPanel('checkin-panel');
   const rows = checkinItems.map(v => `
     <tr>
       <td style="width:38px">
@@ -360,11 +483,11 @@ async function doCheckin() {
   const done = new Set(data.checked_in.map(i => i.id));
   checkinItems = checkinItems.filter(v => !done.has(v.loan_item_id));
   renderCheckin();
-  // The out-now list behind this view is now stale by exactly these items.
+  // Both copies of the Assets Out list are now stale by exactly these items.
   loadOutNow();
 }
 
-// ── Boot ────────────────────────────────
+// ── Boot ──────────────────────────────────────
 (async function init() {
   if (!me) return;
   document.getElementById('operator-name').textContent = me.full_name || me.email;
@@ -380,8 +503,10 @@ async function doCheckin() {
   Cart.load();
   renderLoanee();
   await refreshCart();
+  // A cart restored from a reload already has a person on it.
+  if (Cart.loanee) loadLimit();
 
-  // What is out, on the check-in side, without anyone searching first.
+  // What is out, on BOTH tabs, without anyone searching first.
   loadOutNow();
 
   // Check-out pickers
@@ -390,9 +515,9 @@ async function doCheckin() {
     onPick: async (l) => {
       Cart.setLoanee(l);
       renderLoanee();
-      // Eligibility is per person, so anything already in the cart has to
-      // be re-checked against the new one.
-      await refreshCart();
+      // Eligibility AND the item limit are both per person, so anything
+      // already in the cart has to be re-checked against the new one.
+      await Promise.all([refreshCart(), loadLimit()]);
       document.getElementById('asset-input').focus();
     },
   });
