@@ -297,8 +297,17 @@ async function enforceMemberLimit(client, loanee, assetIds) {
       const n = (counts.get(w.category) || 0) + 1;
       counts.set(w.category, n);
       if (n > limit) {
-        refuse(`${loanee.full_name} already has ${plural(n - 1, w.category.toLowerCase())} out `
-          + `and may hold ${plural(limit, w.category.toLowerCase())} at a time. `
+        // The category name is used VERBATIM and never pluralised. Category
+        // names are already plural by convention — "Carts", "Radios",
+        // "Power Tools" — so running them through plural() produced "1
+        // carts" and, at a limit of two, "2 cartss". Using the name exactly
+        // as it appears in the picker and on the asset card also means the
+        // refusal and the screen behind it are talking about visibly the
+        // same thing.
+        const alreadyOut = held.rows.filter(h => h.category === w.category);
+        refuse(`${loanee.full_name} already has ${plural(n - 1, 'item')} from ${w.category} out`
+          + (alreadyOut.length === 1 ? ` (${alreadyOut[0].asset_tag})` : '')
+          + ` and may hold ${limit === 1 ? 'one' : limit} from each category at a time. `
           + `Check something in first.`);
       }
     }
