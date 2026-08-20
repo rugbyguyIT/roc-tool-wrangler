@@ -14,7 +14,10 @@
 // ─────────────────────────────────────────────────────────────
 const { app } = require('@azure/functions');
 const { query } = require('../db');
-const { json, err, requireAuth, requireRole, qs, uuidOrNull } = require('../middleware');
+const {
+  json, err, requireAuth, requireRole, qs, uuidOrNull,
+  isBase, stripPersonFieldsAll,
+} = require('../middleware');
 
 const MAX_ROWS = 5000;
 function range(p) {
@@ -24,11 +27,11 @@ function limitOf(p, def = 2000) {
   return Math.min(parseInt(p.get('limit') || String(def), 10) || def, MAX_ROWS);
 }
 
-// ── Currently out ────────────────────────────────────────
+// ── Currently out ───────────────────────────────────────
 app.http('reportOutNow', {
   methods: ['GET'], authLevel: 'anonymous', route: 'reports/out-now',
   handler: async (request) => {
-    const { error, status } = await requireAuth(request);
+    const { user, error, status } = await requireAuth(request);
     if (error) return err(error, status);
     const p = qs(request); const [from, to] = range(p);
     const r = await query(
@@ -39,18 +42,20 @@ app.http('reportOutNow', {
          AND ($4::text IS NULL OR sub_committee = $4)
        ORDER BY overdue DESC, checked_out_at DESC
        LIMIT $5`,
-      [from, to, uuidOrNull(p.get('category_id')), p.get('sub_committee') || null, limitOf(p)]);
-    return json({ rows: r.rows, count: r.rows.length });
+      [from, to, uuidOrNull(p.get('category_id')),
+       // Base cannot see a committee, so it cannot filter by one.
+       isBase(user.role) ? null : (p.get('sub_committee') || null), limitOf(p)]);
+    return json({ rows: stripPersonFieldsAll(r.rows, user.role), count: r.rows.length });
   },
 });
 
-// ── Overdue ────────────────────────────────────────────
+// ── Overdue ───────────────────────────────────────────
 // Grace is read from settings rather than hardcoded, so "we don't chase
 // anything under an hour late" is a setting change, not a deploy.
 app.http('reportOverdue', {
   methods: ['GET'], authLevel: 'anonymous', route: 'reports/overdue',
   handler: async (request) => {
-    const { error, status } = await requireAuth(request);
+    const { user, error, status } = await requireAuth(request);
     if (error) return err(error, status);
     const p = qs(request);
     // Grace is read with a scalar subselect + COALESCE, deliberately NOT a
@@ -68,11 +73,11 @@ app.http('reportOverdue', {
          AND ($1::uuid IS NULL OR v.asset_id IN (SELECT id FROM public.assets WHERE category_id = $1))
        ORDER BY v.due_at ASC
        LIMIT $2`, [uuidOrNull(p.get('category_id')), limitOf(p)]);
-    return json({ rows: r.rows, count: r.rows.length });
+    return json({ rows: stripPersonFieldsAll(r.rows, user.role), count: r.rows.length });
   },
 });
 
-// ── Usage by loanee — current AND historical ───────────────────
+// ── Usage by loanee — current AND historical ─────────────────────
 // One row per loan line. The UI computes its per-person rollup from
 // these same rows, so the summary and the detail can never disagree and
 // there's only one query to maintain.
@@ -183,7 +188,7 @@ app.http('reportInventory', {
   },
 });
 
-// ── Activity log ────────────────────────────────────────
+// ── Activity log ─────────────────────────────────────
 app.http('reportActivity', {
   methods: ['GET'], authLevel: 'anonymous', route: 'reports/activity',
   handler: async (request) => {

@@ -108,6 +108,70 @@ function safeProfile(p) {
   };
 }
 
+// ── What a Base member may see of a person ────────────────
+//
+// A counter operator needs to know WHO is taking the forklift and how to
+// ring them when it is late. They do not need the person's email address,
+// their HLSR member number, or which committee they sit on. Those are
+// roster facts that belong to the office, and the counter is a tablet
+// shared across a shed.
+//
+// This is a WHITELIST, not a list of things to remove. The loanees table
+// has grown a column in four of the last five migrations, and a denylist
+// would leak each new one by default — silently, and only noticed later.
+// Anything not named here does not reach a Base session, including
+// columns that do not exist yet.
+//
+// Leadership is deliberately NOT redacted: it is the role committee
+// chairmen use, and Kyle's call is that they keep the roster detail.
+const LOANEE_FOR_BASE = [
+  'id',
+  // Which person, in the three shapes the pickers and tables render.
+  'full_name', 'first_name', 'last_name',
+  // How to chase equipment that is late. The whole recovery path.
+  'phone_mobile',
+  // What decides their item limit, so the counter can see why they were
+  // refused rather than being told "no" with no reason on screen.
+  'title',
+  // Operational, not personal: can they borrow, what do they hold, and
+  // which restriction groups they are in (which gates eligibility).
+  'status', 'items_out', 'group_names',
+];
+
+// Person fields carried by v_open_loan_items under different names. That
+// view mixes asset columns with roster columns, so a whitelist there would
+// have to enumerate every asset column and would break the first time one
+// is added. These are named explicitly instead, and api/test/pii-audit.js
+// asserts that nothing personal survives on ANY endpoint a Base session
+// can reach — which is what actually guarantees both halves.
+const PERSON_FIELDS_ON_VIEWS = [
+  'loanee_email', 'email', 'member_number', 'position', 'sub_committee',
+  'notes', 'status_reason',
+];
+
+function isBase(role) { return role === 'staff'; }
+
+// A loanee-shaped row, reduced to what `role` may see.
+function loaneeForRole(row, role) {
+  if (!row || !isBase(role)) return row;
+  const out = {};
+  for (const f of LOANEE_FOR_BASE) if (f in row) out[f] = row[f];
+  return out;
+}
+
+// A row from v_open_loan_items (or anything mixing asset and person data),
+// with the roster fields taken out for `role`.
+function stripPersonFields(row, role) {
+  if (!row || !isBase(role)) return row;
+  const out = { ...row };
+  for (const f of PERSON_FIELDS_ON_VIEWS) delete out[f];
+  return out;
+}
+
+// Both, mapped over a list, because every call site has a list.
+const loaneesForRole = (rows, role) => (rows || []).map(r => loaneeForRole(r, role));
+const stripPersonFieldsAll = (rows, role) => (rows || []).map(r => stripPersonFields(r, role));
+
 function json(body, status = 200) {
   return { status, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
 }
@@ -126,7 +190,7 @@ function errFromThrow(e) {
   throw e; // a real bug — let hooks.js log it as an unhandled exception
 }
 
-// ── Request helpers ────────────────────────────────────────────
+// ── Request helpers ───────────────────────────────────────
 // Azure SWA forwards the caller's real IP in x-forwarded-for.
 function getIp(request) {
   const fwd = request.headers.get('x-forwarded-for') || '';
@@ -176,6 +240,8 @@ async function logApp(level, event, detail, opts = {}) {
 module.exports = {
   ROLES, SESSION_TTL, PORTAL,
   verifyToken, verifyTokenFull, requireAuth, requireRole, signSession, safeProfile,
+  LOANEE_FOR_BASE, PERSON_FIELDS_ON_VIEWS, isBase,
+  loaneeForRole, loaneesForRole, stripPersonFields, stripPersonFieldsAll,
   json, err, errFromThrow, getSecret, getIp, getUA, readJson, qs, uuidOrNull,
   logAudit, logApp,
 };

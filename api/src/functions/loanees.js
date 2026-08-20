@@ -19,6 +19,7 @@ const { app } = require('@azure/functions');
 const { query, withTransaction } = require('../db');
 const {
   json, err, requireAuth, requireRole, logAudit, readJson, qs, uuidOrNull,
+  isBase, loaneeForRole, loaneesForRole, stripPersonFieldsAll,
 } = require('../middleware');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -36,7 +37,7 @@ function normPhone(v) {
 app.http('loaneesList', {
   methods: ['GET'], authLevel: 'anonymous', route: 'loanees',
   handler: async (request) => {
-    const { error, status } = await requireAuth(request);
+    const { user, error, status } = await requireAuth(request);
     if (error) return err(error, status);
     const p = qs(request);
     const q = (p.get('q') || '').trim();
@@ -70,7 +71,13 @@ app.http('loaneesList', {
       sub_committee: 'ln.sub_committee',
       status:        'ln.status, ln.last_name',
     };
-    const sortKey = SORTS[p.get('sort')] ? p.get('sort') : 'last_name';
+    // Sorting by a hidden column leaks its ordering — sort 493 names by
+    // email and you have learned something about every one of them. Base
+    // may only order by what Base can actually read.
+    const BASE_SORTS = ['last_name', 'first_name', 'full_name', 'phone_mobile', 'title', 'status'];
+    const asked = p.get('sort');
+    const allowed = SORTS[asked] && (!isBase(user.role) || BASE_SORTS.includes(asked));
+    const sortKey = allowed ? asked : 'last_name';
     const dir = p.get('dir') === 'desc' ? 'DESC' : 'ASC';
     // NULLS LAST in both directions: a blank member number should never be
     // the first thing you see when you sort by it.
@@ -80,10 +87,21 @@ app.http('loaneesList', {
     const limit = Math.min(parseInt(p.get('limit') || '100', 10) || 100, 500);
     const offset = Math.max(parseInt(p.get('offset') || '0', 10) || 0, 0);
 
+    // A field you cannot see is a field you should not be able to search.
+    // Base gets no committee tick-list and no committee filter, because
+    // filtering a name list by committee reconstructs, one tick at a time,
+    // exactly the column the redaction just removed. Same reasoning drops
+    // email and committee from the free-text match below: typing a full
+    // email address and watching one row come back confirms it.
+    if (isBase(user.role)) subs.length = 0;
+    const searchable = isBase(user.role)
+      ? `ln.full_name ILIKE '%'||$2||'%' OR ln.phone_mobile LIKE '%'||$2||'%'`
+      : `ln.full_name ILIKE '%'||$2||'%' OR ln.email ILIKE '%'||$2||'%'
+         OR ln.sub_committee ILIKE '%'||$2||'%' OR ln.phone_mobile LIKE '%'||$2||'%'`;
+
     const where = `
       WHERE ln.status = $1
-        AND ($2::text IS NULL OR ln.full_name ILIKE '%'||$2||'%' OR ln.email ILIKE '%'||$2||'%'
-             OR ln.sub_committee ILIKE '%'||$2||'%' OR ln.phone_mobile LIKE '%'||$2||'%')
+        AND ($2::text IS NULL OR ${searchable})
         AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM public.group_members gm
                                          WHERE gm.loanee_id = ln.id AND gm.group_id = $3))
         AND ($4::text[] IS NULL
@@ -102,7 +120,8 @@ app.http('loaneesList', {
        ORDER BY ${orderBy}
        LIMIT $5 OFFSET $6`, [...params, limit, offset]);
     const total = await query(`SELECT count(*)::int AS n FROM public.loanees ln ${where}`, params);
-    return json({ rows: rows.rows, total: total.rows[0].n, sort: sortKey, dir: dir.toLowerCase() });
+    return json({ rows: loaneesForRole(rows.rows, user.role), total: total.rows[0].n,
+                  sort: sortKey, dir: dir.toLowerCase() });
   },
 });
 
@@ -114,7 +133,7 @@ app.http('loaneesList', {
 // literal. Both registrations call the same function so it cannot matter.
 async function loaneeLookupHandler(request) {
   {
-    const { error, status } = await requireAuth(request);
+    const { user, error, status } = await requireAuth(request);
     if (error) return err(error, status);
     const q = (qs(request).get('q') || '').trim();
     if (q.length < 2) return json({ exact: null, matches: [] });
@@ -150,8 +169,13 @@ async function loaneeLookupHandler(request) {
                 ln.last_name
        LIMIT 10`, [q]);
 
+    // is_exact is kept: it is a boolean about the QUERY, not a roster
+    // fact, and the barcode-scanner auto-select depends on it.
     const exact = r.rows.find(x => x.is_exact) || null;
-    return json({ exact, matches: r.rows });
+    return json({
+      exact: exact ? { ...loaneeForRole(exact, user.role), is_exact: true } : null,
+      matches: r.rows.map(m => ({ ...loaneeForRole(m, user.role), is_exact: m.is_exact })),
+    });
   }
 }
 
@@ -168,8 +192,13 @@ app.http('loaneesLookup', {
 // is impossible to widen again without clearing it first.
 async function loaneeCommitteesHandler(request) {
   {
-    const { error, status } = await requireAuth(request);
+    const { user, error, status } = await requireAuth(request);
     if (error) return err(error, status);
+    // Base does not see a person's committee, so it does not get the list
+    // to filter by either. An empty list rather than a 403: the filter
+    // control simply has nothing in it, which the members page already
+    // handles, instead of the whole page erroring on one missing panel.
+    if (isBase(user.role)) return json({ rows: [] });
     const st = ['active', 'inactive'].includes(qs(request).get('status'))
       ? qs(request).get('status') : 'active';
     const r = await query(
@@ -198,7 +227,7 @@ app.http('loaneesGet', {
     if (request.params.id === 'lookup') return loaneeLookupHandler(request);
     if (request.params.id === 'committees') return loaneeCommitteesHandler(request);
 
-    const { error, status } = await requireAuth(request);
+    const { user, error, status } = await requireAuth(request);
     if (error) return err(error, status);
     const id = request.params.id;
     // Not a UUID means not a loanee id. 404, rather than letting Postgres
@@ -212,7 +241,14 @@ app.http('loaneesGet', {
        WHERE gm.loanee_id = $1 ORDER BY g.name`, [id]);
     const open = await query(
       `SELECT * FROM public.v_open_loan_items WHERE loanee_id = $1 ORDER BY checked_out_at DESC`, [id]);
-    return json({ ...r.rows[0], groups: groups.rows, open_items: open.rows });
+    // open_items carries the same person's details again under the view's
+    // own column names, so it is stripped too. Redacting the header and
+    // leaving the rows underneath is how this kind of change usually fails.
+    return json({
+      ...loaneeForRole(r.rows[0], user.role),
+      groups: groups.rows,
+      open_items: stripPersonFieldsAll(open.rows, user.role),
+    });
   },
 });
 
@@ -409,7 +445,7 @@ app.http('loaneesDelete', {
 
 module.exports = {};
 
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 // Bulk removal.
 //
 // Two rules run through both routes below, and they are the whole design:
@@ -425,7 +461,7 @@ module.exports = {};
 //
 // Both routes report the split, so "delete" never quietly means something
 // other than what was clicked.
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 async function removeLoanees(client, ids, reason) {
   if (!ids.length) return { deleted: 0, deactivated: 0, deactivated_names: [] };
 
