@@ -35,13 +35,23 @@ function togglePw() {
 async function handleLogin(ev) {
   ev.preventDefault();
   clearError();
-  const email = document.getElementById('email').value.trim().toLowerCase();
+  // Whatever they typed. An "@" means it is an email address and is
+  // lower-cased; anything else is a name and is sent as typed, because the
+  // server matches names case- and space-insensitively and mangling it
+  // here would only hide what was actually entered from the audit log.
+  const typed = document.getElementById('email').value.trim();
   const password = document.getElementById('password').value;
-  if (!EMAIL_RE.test(email)) return loginError('Please enter a valid email address.');
+  if (!typed) return loginError('Please enter your name or email address.');
   if (!password) return loginError('Please enter your password.');
 
+  const isEmail = typed.includes('@');
+  if (isEmail && !EMAIL_RE.test(typed)) {
+    return loginError('That does not look like a valid email address.');
+  }
+
   setBusy(true);
-  const { data, error } = await api('/auth/login', 'POST', { email, password });
+  const { data, error } = await api('/auth/login', 'POST',
+    isEmail ? { email: typed.toLowerCase(), password } : { name: typed, password });
   if (error) return loginError(error);
 
   saveSession(data.token, data.profile);

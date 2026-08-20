@@ -38,16 +38,24 @@
         <span class="auth-heading-accent">Sign in.</span>
       </h1>
       <div class="auth-sub" style="margin-bottom:24px">
-        Tool, cart and equipment check-out. Accounts are created by an administrator.
+        Tool, cart and equipment check-out. Committee members sign in with their
+        name and zip code.
       </div>
 
       <form onsubmit="handleLogin(event)" autocomplete="on">
-        <label class="auth-field-label" for="email">Email address</label>
-        <input class="auth-input" type="email" id="email" name="email"
-               placeholder="you@example.com" required autocomplete="username" />
+        <!-- ONE box, not two, and deliberately type="text" rather than
+             type="email" — a committee member types their name here and
+             the browser would refuse to submit it as an email. Which kind
+             of account you have is the app's problem, not yours. -->
+        <label class="auth-field-label" for="email">Your name or email address</label>
+        <input class="auth-input" type="text" id="email" name="email"
+               placeholder="Bob Smith" required autocomplete="username"
+               autocapitalize="words" spellcheck="false" />
 
         <label class="auth-field-label" for="password">Password</label>
         <div class="auth-pw-wrap">
+          <!-- inputmode is not "numeric": a zip is digits, but an admin
+               password is not, and the same box takes both. -->
           <input class="auth-input auth-input-pw" type="password" id="password" name="password"
                  placeholder="••••••••••" required autocomplete="current-password" />
           <button type="button" class="auth-pw-toggle" onclick="togglePw()" aria-label="Show password">
