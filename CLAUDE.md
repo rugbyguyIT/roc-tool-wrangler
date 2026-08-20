@@ -101,16 +101,22 @@ invokes the `{id}` handlers directly with the literal segment instead.
 ## Testing
 
 ```bash
-DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/smoke.js    # 131
+DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/smoke.js    # 143
+DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/limits.js   #  32
+DATABASE_URL=... JWT_SECRET=test node api/test/routing.js                        #  11
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/roster.js   #  47
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/repairs.js  #  38
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/users.js    #  50
-DATABASE_URL=... JWT_SECRET=test node api/test/routing.js                        #  11
 node api/test/routes-audit.js    # every mutating route has a role gate
 ```
 
-`routing.js` reads only and needs an active admin present, so run it after
-`smoke.js`. A local Postgres is enough for all of them:
+**Run them in that order.** `limits.js` and `routing.js` both reuse the admin
+`smoke.js` bootstraps rather than creating a second one, so they must come
+immediately after it — `users.js` disables and deletes accounts, and running
+either of them afterwards fails at sign-in with a message that looks nothing
+like the real cause.
+
+A local Postgres is enough for all of them:
 
 ```bash
 apt-get install -y postgresql
@@ -154,6 +160,90 @@ rule down did not prevent the repeat; the fetch-back check is what caught
 it. Run the check, every time, on every pushed file — treat it as part of
 the push, not as a follow-up step that can be skipped when the change
 looked simple.
+
+### For anything bigger than a one-line change: branch, verify, merge
+
+The fetch-back check catches a bad file *after* it is already live. So
+substantial changes now go through a branch instead:
+
+1. `create_branch` from `main`
+2. `push_files` to the branch
+3. `git fetch origin <branch>`, then compare `git hash-object` against
+   `git ls-tree origin/<branch>` — byte-identical is the goal
+4. if they differ, `diff <(grep -v '^\s*//' a) <(grep -v '^\s*//' b)`;
+   comment-only drift (the box-drawing runs, again) is acceptable —
+   **sync local to origin** so the two stop disagreeing
+5. run the full suite, and the Playwright pass for front-end changes,
+   against the branch's copies
+6. `create_pull_request` → `merge_pull_request`
+
+Production never sees an unverified file. PRs #2 and #3 both went this way,
+and both had banner drift that would have been invisible on a direct push.
+
+### Driving the front end in this sandbox
+
+Chrome-in-the-browser tools reach Kyle's machine, not this container, so they
+cannot see the devserver. Use **Python** Playwright (`import playwright.sync_api`)
+with `executable_path=/opt/pw-browsers/chromium-1194/chrome-linux/chrome` and
+`args=["--no-sandbox"]`. Node Playwright is not installed, so `api/test/ui.js`
+does not run here.
+
+Two things to expect: `fonts.googleapis.com` and the Font Awesome CDN both
+fail in this sandbox, so assert that no *failed request URL contains
+127.0.0.1* rather than that there were no failed requests at all. And
+`pkill -f devserver` matches this shell's own command line — it kills the
+whole bash call with exit 144, including any heredoc after it. Start the
+devserver from a script file written with the Write tool, with `< /dev/null`
+on the `nohup setsid` line.
+
+## A caught error inside a transaction is not a handled error
+
+Postgres aborts the **entire transaction** on any error. Every statement
+after it fails with *"current transaction is aborted, commands ignored
+until end of transaction block"*, whatever it was going to do.
+
+So this, inside `performCheckout`, looked defensive and was the opposite:
+
+```js
+let s = null;
+try { s = await client.query(`SELECT member_title FROM app_settings`); }
+catch { /* migration 009 not run yet */ }
+```
+
+The `catch` swallowed the error and the code carried on believing it had
+degraded gracefully. It had actually killed the checkout — a worse outcome
+than the missing column it was guarding against, and one that only appears
+in the window between a commit deploying and Kyle running the migration.
+
+Two rules came out of it:
+
+1. **Ask `information_schema` first, on the pool, before opening the
+   transaction.** A probe that fails costs nothing; a failing statement
+   inside the transaction costs everything after it.
+2. **Read config rows on the pool too, not on the caller's client.** The
+   settings row is a singleton — reading it outside the transaction loses
+   nothing, and it means no statement naming a not-yet-migrated column can
+   reach the transaction even if a cached probe result has gone stale.
+   `try/catch` around *that* query is safe, because the connection it
+   poisons is one nobody else is using.
+
+`api/test/limits.js` holds the case permanently: it drops the four columns
+out from under a process that has already cached them as present, then
+asserts a checkout still succeeds and `/api/settings` still reads.
+
+## Cache the answer, but leave a way to be wrong
+
+Both `hasMemberColumns()` and `settings.js`'s `liveFields()` cache a
+complete answer for the life of the process — right, because columns do not
+normally vanish. Both now also clear that cache on a `42703`
+(undefined_column) and retry once. It should never fire. If it ever does,
+the difference is "one field is missing from the form" instead of "the
+console is down until the app cold-starts".
+
+The partial answer is re-probed every 30 seconds, so running a migration on
+the live app takes effect within a minute. Without that, Kyle runs the
+migration, the Settings page still shows nothing, and it reads as the
+migration having failed.
 
 ## Two numbers beat one when a screen is empty
 
