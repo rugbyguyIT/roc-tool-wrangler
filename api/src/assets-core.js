@@ -1,4 +1,4 @@
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 // HLSR Asset Tracker — the single mutation path.
 //
 // Adapted from 8 Second Rides' rides-core.js. EVERY change to an asset's
@@ -15,10 +15,10 @@
 //
 // If you find yourself writing `UPDATE public.assets SET status` anywhere
 // else in this codebase, stop — it belongs here.
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 const { withTransaction, query } = require('./db');
 
-// ── The transition table ────────────────────────────────────────
+// ── The transition table ────────────────────────────────
 // `from` is not documentation, it is the guard. There is no separate
 // "is it in maintenance?" check anywhere in the app: check_out simply
 // cannot start from 'maintenance' or 'retired'.
@@ -60,7 +60,7 @@ const STATUS_LABEL = {
   maintenance: 'in maintenance', retired: 'retired',
 };
 
-// ── Small helpers ─────────────────────────────────────────────
+// ── Small helpers ─────────────────────────────────
 function assetLabel(a) {
   return a ? `${a.asset_tag} — ${a.title}` : 'That asset';
 }
@@ -116,7 +116,7 @@ async function guardedStatusUpdate(client, assetId, t, action, asset) {
   return upd.rows[0];
 }
 
-// ═══ 1. Single-asset lifecycle ═════════════════════════════════════
+// ═══ 1. Single-asset lifecycle ══════════════════════════
 async function performAction(assetId, action, actor, opts = {}) {
   const t = TRANSITIONS[action];
   if (!t || !DIRECT_ACTIONS.includes(action)) throw { status: 400, message: `Unknown action '${action}'` };
@@ -145,7 +145,7 @@ async function performAction(assetId, action, actor, opts = {}) {
   });
 }
 
-// ═══ 2. Eligibility (read-only) ═══════════════════════════════════
+// ═══ 2. Eligibility (read-only) ═════════════════════════
 // Powers GET /api/eligibility and the asset picker, so staff see an item
 // greyed out with a reason BEFORE they try to hand it over. The
 // eligibility rule itself lives in SQL (public.asset_eligible) so the
@@ -171,7 +171,159 @@ async function checkEligibility(loaneeId, assetIds) {
   });
 }
 
-// ═══ 3. Check-out — cart-style, ALL-OR-NOTHING ═══════════════════════
+// ═══ How much one ordinary member may hold ═══════════════════
+// Ordinary members hold a limited number of items at a time; anyone whose
+// roster title says otherwise — Chairman, Division Chairman, Captain —
+// is unlimited, because the people running a division genuinely do need
+// six radios and a loader at once.
+//
+// Who counts as ordinary, how many, and whether the count is per category
+// or across everything are all settings (migration 009), because that is
+// an operational judgement that will differ between a build week and show
+// week and must not need a deploy to change.
+//
+// This runs inside the check-out transaction, against rows read there.
+// A limit the browser owns is a suggestion: two tablets at the same
+// counter would each see "nothing out" and both hand something over.
+async function memberLimitSettings(client) {
+  // Guarded: on a database where 009 has not been run yet, checkout must
+  // keep working rather than 500 on a missing column. The rule simply
+  // stays off until the migration lands.
+  try {
+    const r = await client.query(
+      `SELECT member_limit_enabled, member_title, member_item_limit, member_limit_per_category
+       FROM public.app_settings WHERE id = 1`);
+    return r.rows[0] || null;
+  } catch (e) {
+    if (e.code === '42703') return null;   // undefined_column
+    throw e;
+  }
+}
+
+function plural(n, word) { return `${n} ${word}${n === 1 ? '' : 's'}`; }
+
+async function enforceMemberLimit(client, loanee, assetIds) {
+  const s = await memberLimitSettings(client);
+  if (!s || !s.member_limit_enabled) return;
+
+  // Title match is case- and space-insensitive. Rosters are typed by hand,
+  // and "committee member " with a trailing space must not silently exempt
+  // someone from a rule everyone else is held to.
+  const norm = v => String(v || '').trim().toLowerCase();
+  if (norm(loanee.title) !== norm(s.member_title)) return;   // not an ordinary member
+
+  const limit = Math.max(1, Number(s.member_item_limit) || 1);
+
+  const held = await client.query(
+    `SELECT a.asset_tag, a.title AS asset_title,
+            COALESCE(c.name, '(uncategorized)') AS category,
+            li.checked_out_at, li.due_at
+     FROM public.loan_items li
+     JOIN public.loans  l ON l.id = li.loan_id
+     JOIN public.assets a ON a.id = li.asset_id
+     LEFT JOIN public.asset_categories c ON c.id = a.category_id
+     WHERE l.loanee_id = $1 AND li.checked_in_at IS NULL
+     ORDER BY li.checked_out_at`, [loanee.id]);
+
+  const wanted = await client.query(
+    `SELECT a.id, a.asset_tag, a.title AS asset_title,
+            COALESCE(c.name, '(uncategorized)') AS category
+     FROM public.assets a
+     LEFT JOIN public.asset_categories c ON c.id = a.category_id
+     WHERE a.id = ANY($1::uuid[])`, [assetIds]);
+
+  // The list is the same either way — whoever is at the counter needs to
+  // see everything the person is holding, not just the row that tripped it.
+  const holding = held.rows.map(h => ({
+    asset_tag: h.asset_tag, asset_title: h.asset_title, category: h.category,
+    checked_out_at: h.checked_out_at, due_at: h.due_at,
+  }));
+  const refuse = (message) => {
+    throw { status: 409, message,
+      member_limit: { limit, per_category: !!s.member_limit_per_category,
+                      title: s.member_title, holding } };
+  };
+
+  if (s.member_limit_per_category) {
+    // One of each kind: count within a category, existing plus incoming.
+    const counts = new Map();
+    for (const h of held.rows) counts.set(h.category, (counts.get(h.category) || 0) + 1);
+    for (const w of wanted.rows) {
+      const n = (counts.get(w.category) || 0) + 1;
+      counts.set(w.category, n);
+      if (n > limit) {
+        refuse(`${loanee.full_name} already has ${plural(n - 1, w.category.toLowerCase())} out `
+          + `and may hold ${plural(limit, w.category.toLowerCase())} at a time. `
+          + `Check something in first.`);
+      }
+    }
+    return;
+  }
+
+  // The stricter reading: a total across everything they hold.
+  const total = held.rows.length + assetIds.length;
+  if (total > limit) {
+    refuse(`${loanee.full_name} already has ${plural(held.rows.length, 'item')} out and may hold `
+      + `${plural(limit, 'item')} at a time. Check something in first, or ask an admin whether `
+      + `they should be on a different title.`);
+  }
+}
+
+// Read-only version for the counter, so the rule is visible on screen
+// before anyone clicks rather than only as a refusal afterwards.
+async function memberLimitStatus(loaneeId) {
+  const lr = await query(`SELECT id, full_name, title FROM public.loanees WHERE id = $1`, [loaneeId]);
+  const loanee = lr.rows[0];
+  if (!loanee) return null;
+
+  let s;
+  try {
+    const r = await query(
+      `SELECT member_limit_enabled, member_title, member_item_limit, member_limit_per_category
+       FROM public.app_settings WHERE id = 1`);
+    s = r.rows[0];
+  } catch (e) {
+    if (e.code === '42703') return null;
+    throw e;
+  }
+  if (!s || !s.member_limit_enabled) return null;
+
+  const norm = v => String(v || '').trim().toLowerCase();
+  if (norm(loanee.title) !== norm(s.member_title)) return null;
+
+  const held = await query(
+    `SELECT a.asset_tag, a.title AS asset_title,
+            COALESCE(c.name, '(uncategorized)') AS category,
+            li.checked_out_at, li.due_at
+     FROM public.loan_items li
+     JOIN public.loans  l ON l.id = li.loan_id
+     JOIN public.assets a ON a.id = li.asset_id
+     LEFT JOIN public.asset_categories c ON c.id = a.category_id
+     WHERE l.loanee_id = $1 AND li.checked_in_at IS NULL
+     ORDER BY li.checked_out_at`, [loaneeId]);
+
+  const limit = Math.max(1, Number(s.member_item_limit) || 1);
+  const perCategory = !!s.member_limit_per_category;
+  const byCategory = {};
+  for (const h of held.rows) byCategory[h.category] = (byCategory[h.category] || 0) + 1;
+
+  return {
+    applies: true,
+    title: s.member_title,
+    limit,
+    per_category: perCategory,
+    holding: held.rows,
+    // Per-category has no single "how many more" number, so the client
+    // reads by_category rather than being handed a misleading one.
+    remaining: perCategory ? null : Math.max(0, limit - held.rows.length),
+    by_category: byCategory,
+    at_limit: perCategory
+      ? Object.values(byCategory).some(n => n >= limit)
+      : held.rows.length >= limit,
+  };
+}
+
+// ═══ 3. Check-out — cart-style, ALL-OR-NOTHING ══════════════════
 // One loanee, N assets, one transaction. If ANY item fails, nothing goes
 // out and the caller gets back exactly which rows blocked it.
 //
@@ -193,13 +345,21 @@ async function performCheckout(loaneeId, items, actor, opts = {}) {
   return withTransaction(async (client) => {
     // ── The loanee ──
     const lr = await client.query(
-      `SELECT id, full_name, status FROM public.loanees WHERE id = $1`, [loaneeId]
+      `SELECT id, full_name, status, title FROM public.loanees WHERE id = $1`, [loaneeId]
     );
     const loanee = lr.rows[0];
     if (!loanee) throw { status: 404, message: 'Committee member not found' };
     if (loanee.status !== 'active') {
       throw { status: 400, message: `${loanee.full_name} is marked inactive and can't be issued equipment.` };
     }
+
+    // ── How much one ordinary member may hold ──
+    // Enforced HERE, inside the same transaction that locks the assets,
+    // rather than in the browser. A limit the front end owns is a
+    // suggestion: two tablets at the same counter would each see "nothing
+    // out" and both hand something over. Checked against rows read under
+    // the transaction, so the second one loses.
+    await enforceMemberLimit(client, loanee, assetIds);
 
     // ── Every asset, locked, checked for status AND group eligibility ──
     // FOR UPDATE serializes two simultaneous carts containing the same
@@ -297,7 +457,7 @@ async function performCheckout(loaneeId, items, actor, opts = {}) {
   });
 }
 
-// ═══ 4. Check-in — all at once or item by item ═══════════════════════
+// ═══ 4. Check-in — all at once or item by item ══════════════════
 // `perItem` lets one call mix outcomes: three radios back on the shelf
 // and one routed straight to maintenance, in a single transaction.
 async function performCheckin(loanItemIds, actor, opts = {}) {
@@ -385,7 +545,7 @@ async function performCheckin(loanItemIds, actor, opts = {}) {
   });
 }
 
-// ═══ 5. Extend a due date ════════════════════════════════════════
+// ═══ 5. Extend a due date ══════════════════════════════════
 async function performExtend(loanId, dueAt, actor, opts = {}) {
   if (!['staff', 'admin'].includes(actor.role)) throw { status: 403, message: 'Forbidden' };
 
@@ -421,5 +581,6 @@ async function performExtend(loanId, dueAt, actor, opts = {}) {
 module.exports = {
   TRANSITIONS, DIRECT_ACTIONS, STATUS_LABEL,
   performAction, performCheckout, performCheckin, performExtend, checkEligibility,
+  memberLimitStatus,
   writeEvent,
 };
