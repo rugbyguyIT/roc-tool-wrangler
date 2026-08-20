@@ -79,8 +79,15 @@ function renderLoanee() {
     <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
       <div>
         <div style="font-size:18px;font-weight:700">${esc(l.full_name)}</div>
-        <div class="small muted">${[l.position, l.sub_committee].filter(Boolean).map(esc).join(' · ') || 'No committee on file'}</div>
-        <div class="small muted">${[l.email, l.phone_mobile && fmtPhone(l.phone_mobile)].filter(Boolean).map(esc).join(' · ')}</div>
+        <!-- Committee and email are not sent to a Base session at all, so
+             these two lines print what is there and nothing where there
+             isn't. The old fallback said "No committee on file", which is
+             a claim about the roster — wrong, and the sort of wrong that
+             gets someone sent to fix a record that was never broken. -->
+        <div class="small muted">${[l.title, l.position, l.sub_committee]
+          .filter(Boolean).map(esc).join(' · ')}</div>
+        <div class="small muted">${[l.email, l.phone_mobile && fmtPhone(l.phone_mobile)]
+          .filter(Boolean).map(esc).join(' · ')}</div>
         <div class="pill-row" style="margin-top:8px">${groups || '<span class="small muted">No groups</span>'}</div>
       </div>
       <div style="text-align:right">
