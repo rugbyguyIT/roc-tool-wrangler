@@ -1,10 +1,15 @@
 // ─────────────────────────────────────────────────────────────
 // HLSR Asset Tracker — login page controller.
 //
-// One step: email + password. No identify round-trip, no OTP, no PIN —
-// every account is created by an administrator, so there is nothing to
-// branch on and no reason to make people wait for a lookup before they
-// can type their password.
+// One step, one box for who you are and one for what you know. No
+// identify round-trip, no OTP, no PIN — every account is created by an
+// administrator, so there is nothing to branch on and no reason to make
+// people wait for a lookup before they can type their password.
+//
+// Shared with 1932.html, which is the same form in a red coat. Both
+// pages read the same element ids; api/test/swa-config.js asserts that
+// they still do, because a renamed field here is a login page that
+// silently cannot log anyone in.
 // ─────────────────────────────────────────────────────────────
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -32,17 +37,114 @@ function togglePw() {
   i.className = show ? 'fa-solid fa-eye-slash' : 'fa-solid fa-eye';
 }
 
+// ── What the second box is called ────────────────────────
+// Kyle: "the word password should change if they need to use their zip
+// to login."
+//
+// He is right, and it is not cosmetic. A committee member's password IS
+// their zip code — that is what the roster import set — so a box
+// labelled "Password" is a box 493 people will stand at the counter
+// trying to fill in with something nobody ever gave them. Naming the
+// thing they actually have to type removes the whole question.
+//
+// The rule is the same one the server uses: an "@" means an email
+// address, which means an admin, who has a real password. Everything
+// else is a name. It reads ONLY what has been typed into the first box,
+// so it reveals nothing about whether any account exists — this is a
+// relabelling, not a lookup.
+function pwWord() {
+  const el = document.getElementById('password-label');
+  return (el ? el.textContent : 'Password').toLowerCase();
+}
+
+function retitlePassword() {
+  const typed = document.getElementById('email').value.trim();
+  const label = document.getElementById('password-label');
+  const field = document.getElementById('password');
+  if (!label || !field) return;
+
+  // An empty box makes no claim either way yet, so it keeps the neutral
+  // wording rather than guessing at the person before they have typed.
+  const zip = typed.length > 0 && !typed.includes('@');
+
+  label.textContent = zip ? 'Zip code' : 'Password';
+  field.placeholder = zip ? 'Your 5-digit zip code' : '••••••••••';
+  // A numeric keypad is a real gain on a phone when the answer is five
+  // digits, and actively wrong when it is a passphrase. This is why the
+  // markup does not hardcode inputmode either way.
+  field.inputMode = zip ? 'numeric' : 'text';
+}
+
+// Retitling on every keystroke flickers: the first four characters of
+// "kyle@..." contain no "@", so the label would say "Zip code" and then
+// change its mind. Settling for a moment, and immediately on the way out
+// of the field, means it is correct by the time anyone looks at it.
+function wireRetitle() {
+  const f = document.getElementById('email');
+  if (!f) return;
+  let t = null;
+  f.addEventListener('input', () => { clearTimeout(t); t = setTimeout(retitlePassword, 350); });
+  f.addEventListener('blur', () => { clearTimeout(t); retitlePassword(); });
+}
+
+// ── Remembering who you are ────────────────────────────
+// Kyle: "when logging in, it should auto populate your name."
+//
+// Only the identifier is stored. Never the password, never the zip —
+// remembering a name saves typing; remembering a zip would mean the
+// tablet itself could sign somebody in, which is the thing this app has
+// consistently refused to build.
+//
+// It lives in localStorage on that one device. On a phone that is pure
+// convenience. On the shared counter tablet it means the next person
+// sees the last person's name already in the box, so "Not you?" sits
+// right under the field and clears both the box and the memory. A name
+// is not a secret here — any Base member can already see the whole
+// roster's names — but it should still take one tap to be rid of.
+const REMEMBER_KEY = 'roc.last_identity';
+
+// Every access is guarded: Safari in private mode throws on localStorage
+// rather than returning null, and a login page that throws before it
+// paints is a login page nobody can use.
+function rememberIdentity(typed) {
+  try { localStorage.setItem(REMEMBER_KEY, typed); } catch { /* private mode */ }
+}
+function recallIdentity() {
+  try { return localStorage.getItem(REMEMBER_KEY) || ''; } catch { return ''; }
+}
+function clearIdentity() {
+  try { localStorage.removeItem(REMEMBER_KEY); } catch { /* private mode */ }
+  const f = document.getElementById('email');
+  const n = document.getElementById('not-you');
+  if (f) { f.value = ''; f.focus(); }
+  if (n) n.style.display = 'none';
+  retitlePassword();
+}
+
+function prefillIdentity() {
+  const f = document.getElementById('email');
+  if (!f || f.value) return;
+  const last = recallIdentity();
+  if (!last) return;
+  f.value = last;
+  const n = document.getElementById('not-you');
+  if (n) n.style.display = '';
+  retitlePassword();
+  // Straight to the only box they still have to fill in.
+  document.getElementById('password')?.focus();
+}
+
 async function handleLogin(ev) {
   ev.preventDefault();
   clearError();
   // Whatever they typed. An "@" means it is an email address and is
-  // lower-cased; anything else is a name and is sent as typed, because the
-  // server matches names case- and space-insensitively and mangling it
-  // here would only hide what was actually entered from the audit log.
+  // lower-cased; anything else is a name and is sent as typed, because
+  // the server matches names case- and space-insensitively and mangling
+  // it here would only hide what was actually entered from the audit log.
   const typed = document.getElementById('email').value.trim();
   const password = document.getElementById('password').value;
   if (!typed) return loginError('Please enter your name or email address.');
-  if (!password) return loginError('Please enter your password.');
+  if (!password) return loginError(`Please enter your ${pwWord()}.`);
 
   const isEmail = typed.includes('@');
   if (isEmail && !EMAIL_RE.test(typed)) {
@@ -54,6 +156,9 @@ async function handleLogin(ev) {
     isEmail ? { email: typed.toLowerCase(), password } : { name: typed, password });
   if (error) return loginError(error);
 
+  // Only on the way in. A name that was just refused is not worth
+  // offering back to whoever picks the tablet up next.
+  rememberIdentity(typed);
   saveSession(data.token, data.profile);
   window.location.href = data.portal || '/pages/board.html';
 }
@@ -71,3 +176,8 @@ async function handleLogin(ev) {
   }[p.role];
   if (portal) window.location.href = portal;
 })();
+
+// After the redirect check, so a signed-in visitor never sees the form
+// flicker into a filled-in state on its way somewhere else.
+wireRetitle();
+prefillIdentity();

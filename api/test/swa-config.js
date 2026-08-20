@@ -113,13 +113,42 @@ for (const page of ['index.html', '1932.html']) {
   check(`${page} posts through the shared form handler`, html.includes('handleLogin(event)'));
   // js/auth.js reads these by id. A renamed field is a login page that
   // silently cannot log anyone in.
-  for (const id of ['login-error', 'email', 'password', 'login-btn', 'login-btn-label', 'pw-icon']) {
+  for (const id of ['login-error', 'email', 'password', 'login-btn', 'login-btn-label',
+                    'pw-icon', 'password-label', 'not-you']) {
     check(`${page} has #${id}, which js/auth.js reads by id`, html.includes(`id="${id}"`));
   }
   check(`${page} keeps the name field as type="text"`,
     /id="email"[^>]*\/?>/.test(html) && /type="text"[^>]*id="email"|id="email"[^>]*type="text"/.test(html),
     'type="email" makes the browser refuse to submit a person\'s name');
+
+  // The second field's label is rewritten at runtime — "Zip code" for a
+  // committee member, "Password" for an admin. Hardcoding inputmode in
+  // the markup would fight that: a static numeric keypad is wrong for a
+  // passphrase, and a static text one throws away the win on five digits.
+  const pwTag = (/<input[^>]*id="password"[^>]*>/.exec(html) || [''])[0];
+  check(`${page} leaves inputmode on the password field to js/auth.js`,
+    !/inputmode=/i.test(pwTag), pwTag);
+  // The "Not you?" control must actually be wired to something, or it is
+  // a button that silently does nothing on the one screen where a dead
+  // control is most alarming.
+  check(`${page} wires "Not you?" to clearIdentity()`,
+    html.includes('onclick="clearIdentity()"'));
 }
+
+section('The login script backs those pages up');
+// Cheap, and it has already earned itself once: a PLACEHOLDER string
+// went out in a pushed .js file and took the whole app down. These are
+// the four behaviours the two pages above depend on existing here.
+const authJs = fs.readFileSync(path.join(ROOT, 'js', 'auth.js'), 'utf8');
+for (const fn of ['function handleLogin', 'function clearIdentity',
+                  'function prefillIdentity', 'function retitlePassword']) {
+  check(`js/auth.js defines ${fn.replace('function ', '')}()`, authJs.includes(fn));
+}
+// The one rule about what may be remembered. Storing the second box
+// would mean the tablet itself could sign somebody in.
+check('js/auth.js never writes the password or zip to storage',
+  !/setItem\([^)]*(password|zip)/i.test(authJs),
+  'Only the identifier may be remembered.');
 
 console.log(`\n\x1b[1m${passed} passed, ${failures.length} failed\x1b[0m`);
 if (failures.length) {
