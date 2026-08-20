@@ -134,7 +134,12 @@ async function openAsset(id) {
     <div class="card card-sm" style="margin-bottom:16px;border-left:3px solid ${a.current.overdue ? 'var(--red)' : 'var(--orange)'}">
       <div class="small muted">Currently with</div>
       <div style="font-weight:700;font-size:16px">${esc(a.current.loanee_name)}</div>
-      <div class="small">${esc(a.current.sub_committee || '')} ${a.current.loanee_phone ? `· <a href="tel:${esc(a.current.loanee_phone)}">${esc(fmtPhone(a.current.loanee_phone))}</a>` : ''}</div>
+      <!-- Committee is absent for a Base session. Joining the parts rather
+           than concatenating avoids a stray leading "·" when it is. -->
+      <div class="small">${[
+        a.current.sub_committee ? esc(a.current.sub_committee) : '',
+        a.current.loanee_phone ? `<a href="tel:${esc(a.current.loanee_phone)}">${esc(fmtPhone(a.current.loanee_phone))}</a>` : '',
+      ].filter(Boolean).join(' · ')}</div>
       <div class="small ${a.current.overdue ? '' : 'muted'}" style="${a.current.overdue ? 'color:var(--red);font-weight:600' : ''}">
         Out ${esc(fmtAgo(a.current.checked_out_at))}${a.current.due_at ? ` · due ${esc(fmtWhen(a.current.due_at))}` : ' · no due date'}
         ${a.current.overdue ? ' · OVERDUE' : ''}
