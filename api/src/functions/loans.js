@@ -8,6 +8,7 @@
 //   GET  /api/loans/open              any   ← the leader board
 //   GET  /api/loans/{id}              any
 //   GET  /api/eligibility             staff, admin
+//   GET  /api/loanees/{id}/limit      staff, admin
 //
 // All the interesting logic lives in assets-core.js. These handlers do
 // input shaping, the default-due-date rule, and audit logging.
@@ -130,7 +131,7 @@ app.http('loanExtend', {
 
 // Everything currently out. This is what the leader PWA polls, so it is
 // readable by every role including the read-only leader.
-// ═════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
 // 'loans/open' and 'loans/{id}' both match GET /api/loans/open, and the
 // host does NOT reliably prefer the literal — in production the template
 // won, so the board's request arrived here as id="open" and Postgres
@@ -141,7 +142,7 @@ app.http('loanExtend', {
 // function that BOTH registrations call. Whichever way the host resolves
 // it, the same code runs. The same shape is used in loanees.js and
 // assets.js, which had the identical collision.
-// ═════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
 async function openLoansHandler(request) {
   {
     const { error, status } = await requireAuth(request);
@@ -252,6 +253,27 @@ app.http('eligibility', {
     const ids = (p.get('asset_ids') || '').split(',').map(s => s.trim()).filter(Boolean);
     if (!ids.length) return json([]);
     return json(await core.checkEligibility(uuidOrNull(p.get('loanee_id')), ids));
+  },
+});
+
+// What the item limit means for ONE person, read-only. The counter calls
+// this the moment someone is chosen, so the rule shows on screen before
+// anyone builds a cart — a refusal that only arrives after the click is a
+// rule nobody can plan around.
+//
+// The enforcement still lives in performCheckout. This is the courtesy
+// copy, and it is allowed to be a moment out of date; the transaction is
+// the one that decides.
+app.http('memberLimit', {
+  methods: ['GET'], authLevel: 'anonymous', route: 'loanees/{id}/limit',
+  handler: async (request) => {
+    const { error, status } = await requireRole(request, 'staff', 'admin');
+    if (error) return err(error, status);
+    const id = uuidOrNull(request.params.id);
+    if (!id) return err('Committee member not found', 404);
+    // null means "no limit applies to this person" — an officer, or the
+    // rule switched off. The client renders nothing in that case.
+    return json(await core.memberLimitStatus(id) || { applies: false });
   },
 });
 
