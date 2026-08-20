@@ -41,12 +41,5 @@
       "route": "/manifest.json",
       "headers": { "Cache-Control": "no-cache, must-revalidate" }
     }
-  ],
-  "navigationFallback": {
-    "rewrite": "/index.html",
-    "exclude": ["/api/*", "/css/*", "/js/*", "/icons/*", "/*.png", "/*.json"]
-  },
-  "responseOverrides": {
-    "404": { "rewrite": "/index.html" }
-  }
+  ]
 }
