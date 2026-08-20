@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="classic">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>1932 · {{app}}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Oswald:wght@400;500;600;700&family=Inter:opsz,wght@14..32,300..800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="/css/brand.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=3" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=3" />
+  <meta name="theme-color" content="#7d0f16" />
+  <meta name="robots" content="noindex, nofollow" />
+
+  <!-- ────────────────────────────────────────────────────────────
+       The red door.
+
+       This is the SAME sign-in as the front page — same form, same
+       js/auth.js, same POST /api/auth/login, same rules about who gets
+       in. Nothing on this page grants a single right that the front
+       page does not.
+
+       It looks different so that it is UNMISTAKABLE, which matters in
+       both directions: someone reading "go to slash nineteen thirty-two"
+       off a radio can tell at a glance they landed in the right place,
+       and anyone who wanders in by accident can tell at a glance that
+       they have not.
+
+       The styling is deliberately confined to this file, scoped under
+       .door-1932, rather than added to css/style.css. The shared
+       stylesheet dresses every screen in the app; a red palette that
+       exists for exactly one page has no business living there, and
+       keeping it here means nobody has to wonder later whether some
+       rule in style.css is load-bearing for the ordinary login.
+  ──────────────────────────────────────────────────────────── -->
+  <style>
+    .door-1932 .auth-wrap{background:#0a0305}
+    .door-1932 .auth-wrap::before{
+      background:
+        radial-gradient(ellipse 85% 60% at 50% 0%, rgba(214,26,38,0.62) 0%, transparent 66%),
+        radial-gradient(ellipse 75% 50% at 50% 100%, rgba(150,18,26,0.50) 0%, transparent 66%);
+    }
+
+    /* A thin band of hazard stripes across the top of the card. It is the
+       one piece of pure decoration here, and it earns its place by being
+       readable at arm's length on a phone in a shed — which is the actual
+       viewing condition this page was asked for. */
+    .door-1932 .auth-card{
+      background:linear-gradient(180deg,#25090d 0%,#160609 62%);
+      border:1px solid rgba(240,60,70,0.42);
+      box-shadow:0 24px 64px rgba(0,0,0,0.62), 0 0 60px rgba(214,26,38,0.30),
+                 inset 0 1px 0 rgba(255,255,255,0.06);
+      overflow:hidden;
+    }
+    .door-1932 .auth-card::before{
+      content:''; position:absolute; top:0; left:0; right:0; height:6px;
+      background:repeating-linear-gradient(-45deg,
+        #c41622 0 12px, #7d0f16 12px 24px);
+      opacity:.9;
+    }
+
+    .door-1932 .auth-eyebrow{color:#ff6a72;letter-spacing:.26em}
+    /* The headline is flat red rather than the front page's animated
+       gradient. One moving thing on a screen reads as emphasis; two read
+       as a website trying to sell you something. */
+    .door-1932 .auth-heading-accent{
+      background:none; -webkit-text-fill-color:#ff4b55; color:#ff4b55; animation:none;
+    }
+    .door-1932 .auth-sub{color:rgba(255,255,255,0.60)}
+
+    .door-1932 .auth-input:focus{
+      border-color:rgba(224,42,52,0.62);
+      box-shadow:0 0 0 3px rgba(224,42,52,0.18);
+    }
+
+    /* White on this red clears 4.5:1; the front page's dark-on-orange
+       treatment does not survive being recoloured, so the button is
+       restated rather than tinted. */
+    .door-1932 .auth-btn{
+      background:linear-gradient(135deg,#e0202c,#9c1119);
+      color:#fff;
+      box-shadow:0 8px 22px rgba(196,22,34,0.38);
+    }
+    .door-1932 .auth-btn:hover{box-shadow:0 10px 28px rgba(196,22,34,0.52)}
+
+    /* The badge sits on near-black on the front page. Here it sits on red,
+       so it gets its own dark seat to stop the artwork bleeding into the
+       glow behind it. */
+    .door-1932 .auth-logo-img{
+      filter:
+        drop-shadow(0 0 26px rgba(0,0,0,0.85))
+        drop-shadow(6px 8px 10px rgba(0,0,0,0.55));
+    }
+
+    .door-1932 .door-note{
+      margin-top:22px; padding-top:18px;
+      border-top:1px solid rgba(224,42,52,0.20);
+      font-size:var(--fs-xs); line-height:1.6; color:rgba(255,255,255,0.44);
+    }
+    .door-1932 .door-note b{color:rgba(255,255,255,0.72);font-weight:600}
+    .door-1932 .door-note a{color:#ff6a72;text-decoration:none;border-bottom:1px solid rgba(255,106,114,0.4)}
+    .door-1932 .door-note a:hover{color:#ff8f95}
+
+    @media (prefers-reduced-motion:reduce){
+      .door-1932 .auth-card::before{opacity:.75}
+    }
+  </style>
+</head>
+<body class="door-1932">
+<div class="auth-wrap">
+  <div class="auth-shell">
+    <div class="auth-logo">
+      <img class="auth-logo-img" src="/login-logo.png"
+           alt="ROC Tool Wrangler"
+           onerror="this.style.display='none';document.getElementById('auth-logo-fallback').style.display='flex'" />
+      <div id="auth-logo-fallback" style="display:none;align-items:center;justify-content:center;height:120px">
+        <i class="fa-solid fa-screwdriver-wrench" style="font-size:44px;color:#ff4b55"></i>
+      </div>
+    </div>
+
+    <div class="auth-card">
+      <div id="login-error" class="auth-error" style="display:none"></div>
+
+      <div class="auth-eyebrow">Since 1932</div>
+      <h1 class="auth-heading" style="margin-bottom:8px">
+        <span class="auth-heading-accent">Sign in.</span>
+      </h1>
+      <div class="auth-sub" style="margin-bottom:24px">
+        Same sign-in as the front page, easier to read out loud.
+        Committee members use their name and zip code.
+      </div>
+
+      <form onsubmit="handleLogin(event)" autocomplete="on">
+        <label class="auth-field-label" for="email">Your name or email address</label>
+        <input class="auth-input" type="text" id="email" name="email"
+               placeholder="Bob Smith" required autocomplete="username"
+               autocapitalize="words" spellcheck="false" />
+
+        <label class="auth-field-label" for="password">Password</label>
+        <div class="auth-pw-wrap">
+          <input class="auth-input auth-input-pw" type="password" id="password" name="password"
+                 placeholder="••••••••••" required autocomplete="current-password" />
+          <button type="button" class="auth-pw-toggle" onclick="togglePw()" aria-label="Show password">
+            <i class="fa-solid fa-eye" id="pw-icon"></i>
+          </button>
+        </div>
+
+        <button type="submit" class="auth-btn" id="login-btn">
+          <span id="login-btn-label">Sign In</span><i class="fa-solid fa-arrow-right"></i>
+        </button>
+      </form>
+
+      <!-- Said plainly, because a door painted red invites the belief that
+           it is a different door. Whatever account you sign in with has
+           exactly the rights it already had. -->
+      <div class="door-note">
+        <b>This is a shortcut, not a shortcut past anything.</b> You still
+        sign in, and your account has whatever rights it has.
+        <a href="/">Front page</a>
+      </div>
+
+      <div class="auth-copyright">
+        <span data-app-name>HLSR Asset Tracker</span> ·
+        <span id="cr-year"></span> <span data-app-org>Houston Livestock Show and Rodeo™</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/config.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/auth.js"></script>
+<script>document.getElementById('cr-year').textContent = new Date().getFullYear();</script>
+</body>
+</html>
