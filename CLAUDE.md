@@ -111,7 +111,7 @@ DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/roster.js  
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/repairs.js  #  38
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/users.js    #  50
 node api/test/routes-audit.js    # every mutating route has a role gate
-node api/test/swa-config.js      # every SWA route still points at a real file  #  31
+node api/test/swa-config.js      # SWA routes + both login pages agree        #  44
 ```
 
 The last two need no database and no server. `swa-config.js` is the only
@@ -169,6 +169,29 @@ rule down did not prevent the repeat; the fetch-back check is what caught
 it. Run the check, every time, on every pushed file — treat it as part of
 the push, not as a follow-up step that can be skipped when the change
 looked simple.
+
+**Then a third time**, on the `remember-me` branch:
+`PLACEHOLDER_DO_NOT_SHIP` as the entire body of `css/style.css`. Reading
+this section twice did not stop it. What actually happened is worth naming,
+because it is the same shape every time: the change needed one new rule in
+a 45KB file, the other five files in the batch were ready, and rather than
+stop and assemble 45KB the call went out with a stand-in "to fill in".
+There is no fill-in step. `push_files` is the write.
+
+So there is now a rule that does not depend on remembering a rule:
+
+**Do not put a file in `push_files` unless its complete final content is
+already written out in that same call.** If it is not, take it out of the
+batch — a second commit costs nothing, and a branch with five correct files
+is fine while a branch with six files and one placeholder is not.
+
+And a corollary that removes the temptation entirely: **prefer a change
+that does not touch a file you cannot cheaply retype.** The one new rule
+here was `.auth-notyou`, needed by two login pages. It went inline on the
+two `<button>` elements — slightly less tidy than a class, and it meant
+`css/style.css` never entered a tool call at all. Weigh that trade
+deliberately: for a large shared stylesheet, "I have to retype 45KB to add
+four lines" is itself the signal that the four lines belong somewhere else.
 
 ### For anything bigger than a one-line change: branch, verify, merge
 
