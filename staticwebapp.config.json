@@ -7,6 +7,11 @@
   },
   "routes": [
     {
+      "_comment": "A short address for the login page — 1932 is the year the Show was founded. It REWRITES rather than redirects, so the bar keeps saying /1932 and it is easy to read out across a shed. It is a shortcut to the form, not a way past it: whoever follows it still has to sign in, and the account they sign in as has whatever rights it has. There is deliberately no such thing as a URL that logs you in.",
+      "route": "/1932",
+      "rewrite": "/index.html"
+    },
+    {
       "_comment": "Loanees became Committee Members in 0.14.0 and the page moved with it. Anyone who bookmarked the old address, or put it on a phone home screen, still lands in the right place. Permanent, because the old path is never coming back.",
       "route": "/pages/loanees.html",
       "redirect": "/pages/members.html",
@@ -36,5 +41,12 @@
       "route": "/manifest.json",
       "headers": { "Cache-Control": "no-cache, must-revalidate" }
     }
-  ]
+  ],
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/api/*", "/css/*", "/js/*", "/icons/*", "/*.png", "/*.json"]
+  },
+  "responseOverrides": {
+    "404": { "rewrite": "/index.html" }
+  }
 }
