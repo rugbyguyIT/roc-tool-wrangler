@@ -11,7 +11,7 @@ let LOCATIONS = [];
 let SETTINGS = {};
 let lnDebounce = null;
 
-// ══ Dashboard ══════════════════════════════════════════
+// ══ Dashboard ════════════════════════════════════════════
 async function loadDashboard() {
   const [open, assets, loanees, groups] = await Promise.all([
     api('/loans/open'), api('/assets?limit=1'), api('/loanees?limit=1'), api('/groups'),
@@ -45,7 +45,7 @@ async function loadDashboard() {
 // The member form + actions live in js/loanee-form.js, shared with the
 // dedicated Committee Members page.
 
-// ══ Groups ═════════════════════════════════════════════
+// ══ Groups ═══════════════════════════════════════════════
 async function loadGroups() {
   const { data, error } = await api('/groups');
   if (error) return;
@@ -167,7 +167,7 @@ async function removeMember(groupId, loaneeId) {
   groupMembers(groupId);
 }
 
-// ══ App users ══════════════════════════════════════════
+// ══ App users ════════════════════════════════════════════
 // 'staff' is the stored value; 'Base' is what everyone at the grounds
 // calls it. Renaming the stored value would mean migrating the CHECK
 // constraint, every JWT in circulation and every route guard for a
@@ -595,7 +595,7 @@ async function changeMyPassword() {
   setTimeout(signOut, 1500);
 }
 
-// ══ Lookups ════════════════════════════════════════════
+// ══ Lookups ══════════════════════════════════════════════
 function lookupPanel(kind, title, icon, rows) {
   return `<div class="card card-sm">
     <div style="display:flex;justify-content:space-between;align-items:center">
@@ -664,7 +664,7 @@ async function deleteLookup(kind, id, name) {
   loadLookups();
 }
 
-// ══ Settings ══════════════════════════════════════════
+// ══ Settings ════════════════════════════════════════════
 async function loadSettings() {
   const el = document.getElementById('settings-panel');
   const { data, error } = await api('/settings');
@@ -708,9 +708,40 @@ async function loadSettings() {
       <span>Require a condition when checking equipment out</span>
       <label class="switch"><input type="checkbox" id="s-cond"${data.require_out_condition ? ' checked' : ''} /><span class="slider"></span></label>
     </label>
+
+    <div class="section-title" style="margin-top:24px;font-size:15px">
+      <i class="fa-solid fa-hand"></i> How much one member may hold
+    </div>
+    <div class="small muted" style="margin-bottom:12px">
+      Ordinary members are limited; anyone with another roster title — Chairman,
+      Division Chairman and so on — is not. The title below is what decides which
+      is which, so it has to match the roster exactly.
+    </div>
     <label class="toggle-row">
-      <span>Pilot mode banner</span>
-      <label class="switch"><input type="checkbox" id="s-pilot"${data.pilot_mode ? ' checked' : ''} /><span class="slider"></span></label>
+      <span>Limit how much an ordinary member can hold
+        <div class="small muted">Off means anyone may take out as much as they like.</div></span>
+      <label class="switch"><input type="checkbox" id="s-mlimit"${data.member_limit_enabled ? ' checked' : ''} /><span class="slider"></span></label>
+    </label>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Which title is an ordinary member</label>
+        <input class="form-input" id="s-mtitle" value="${esc(data.member_title || 'Committee Member')}" />
+        <div class="small muted" style="margin-top:6px">
+          Matched against the roster Title column, ignoring case and stray spaces.
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">How many at a time</label>
+        <input class="form-input" id="s-mcount" type="number" min="1" max="99" value="${data.member_item_limit ?? 1}" />
+        <div class="small muted" style="margin-top:6px">
+          Use the toggle above to switch the rule off — zero is not a limit.
+        </div>
+      </div>
+    </div>
+    <label class="toggle-row">
+      <span>Count per category instead of overall
+        <div class="small muted">On: one forklift AND one cart. Off: one item of any kind, full stop.</div></span>
+      <label class="switch"><input type="checkbox" id="s-mpercat"${data.member_limit_per_category ? ' checked' : ''} /><span class="slider"></span></label>
     </label>
     <button class="btn btn-primary btn-block" style="margin-top:16px" onclick="saveSettings()">
       <i class="fa-solid fa-check"></i> Save settings
@@ -729,7 +760,10 @@ async function saveSettings() {
     default_loan_hours: parseInt(document.getElementById('s-hours').value, 10) || 0,
     overdue_grace_hours: parseInt(document.getElementById('s-grace').value, 10) || 0,
     require_out_condition: document.getElementById('s-cond').checked,
-    pilot_mode: document.getElementById('s-pilot').checked,
+    member_limit_enabled: document.getElementById('s-mlimit').checked,
+    member_title: document.getElementById('s-mtitle').value.trim(),
+    member_item_limit: parseInt(document.getElementById('s-mcount').value, 10) || 1,
+    member_limit_per_category: document.getElementById('s-mpercat').checked,
   };
   const { error } = await api('/settings', 'PATCH', body);
   if (error) return toastMsg('Could not save', error, 'error');
@@ -740,7 +774,7 @@ async function saveSettings() {
   loadSettings();
 }
 
-// ══ Logs ══════════════════════════════════════════════
+// ══ Logs ═════════════════════════════════════════════════
 let logTab = 'audit';
 function setLogTab(t) {
   logTab = t;
@@ -819,7 +853,7 @@ async function downloadImportErrors(batchId) {
   ]);
 }
 
-// ══ Boot ═════════════════════════════════════════════
+// ══ Boot ════════════════════════════════════════════════
 (async function init() {
   if (!me) return;
 

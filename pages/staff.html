@@ -54,11 +54,15 @@
     <div class="main-panel">
 
       <!-- ══════════ CHECK OUT ══════════ -->
+      <!-- Handing out is on the left, taking back is on the right. Both
+           tabs now use the same 5/7 skeleton, so the Assets Out list sits
+           in the same place on the screen whichever tab you are on — the
+           counter never has to hunt for it. -->
       <div class="view active" id="view-out">
         <div class="bento-grid">
 
-          <!-- Step 1 · who -->
-          <div class="bento-7">
+          <div class="bento-5">
+            <!-- Step 1 · who -->
             <div class="card">
               <div class="section-title"><i class="fa-solid fa-user"></i> 1 · Who is taking it?</div>
               <div id="loanee-picked" style="display:none"></div>
@@ -82,11 +86,9 @@
               </div>
               <div id="cart-wrap"></div>
             </div>
-          </div>
 
-          <!-- Step 3 · terms -->
-          <div class="bento-5">
-            <div class="card card-sm">
+            <!-- Step 3 · terms -->
+            <div class="card card-sm" style="margin-top:16px">
               <div class="section-title"><i class="fa-solid fa-clock"></i> 3 · When is it due back?</div>
               <div class="form-group">
                 <label class="form-label" for="due-input">Due date and time</label>
@@ -111,6 +113,13 @@
                 Checked out by <b id="operator-name">you</b>
               </div>
             </div>
+          </div>
+
+          <!-- Everything currently out, right next to the handoff form, so
+               a return that walks up mid-checkout is two clicks instead of
+               a tab change and a search. -->
+          <div class="bento-7">
+            <div id="out-panel"></div>
           </div>
         </div>
       </div>
