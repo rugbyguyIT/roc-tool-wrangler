@@ -182,20 +182,65 @@ async function checkEligibility(loaneeId, assetIds) {
 // an operational judgement that will differ between a build week and show
 // week and must not need a deploy to change.
 //
-// This runs inside the check-out transaction, against rows read there.
-// A limit the browser owns is a suggestion: two tablets at the same
-// counter would each see "nothing out" and both hand something over.
-async function memberLimitSettings(client) {
-  // Guarded: on a database where 009 has not been run yet, checkout must
-  // keep working rather than 500 on a missing column. The rule simply
-  // stays off until the migration lands.
+// The count of what someone already holds is read inside the check-out
+// transaction, against rows locked there. A limit the browser owns is a
+// suggestion: two tablets at the same counter would each see "nothing out"
+// and both hand something over.
+//
+// The RULE, though — the settings row — is read on the pool, deliberately,
+// and everything below is arranged so that no statement naming a 009
+// column ever enters the transaction. Postgres aborts an entire
+// transaction on any error, including a missing column, so the first
+// version of this — `try { SELECT member_title } catch {}` inside
+// performCheckout — looked handled and actually poisoned the transaction:
+// every query after it failed with "current transaction is aborted" and
+// the whole checkout died, which is far worse than the missing column it
+// was guarding against. api/test/limits.js holds that case permanently.
+//
+// So: does the database have migration 009's columns yet? A true answer is
+// cached for good; a false one is re-checked at most twice a minute, so
+// running the migration on a live app takes effect within a minute instead
+// of waiting for a cold start.
+const MEMBER_COLS = ['member_limit_enabled', 'member_title', 'member_item_limit', 'member_limit_per_category'];
+let _hasMemberCols = false;
+let _memberColsCheckedAt = 0;
+async function hasMemberColumns() {
+  if (_hasMemberCols) return true;
+  if (Date.now() - _memberColsCheckedAt < 30000) return false;
+  _memberColsCheckedAt = Date.now();
+  const r = await query(
+    `SELECT count(*)::int AS n FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'app_settings'
+       AND column_name = ANY($1::text[])`, [MEMBER_COLS]);
+  _hasMemberCols = r.rows[0].n === MEMBER_COLS.length;
+  return _hasMemberCols;
+}
+
+// Read the rule. Deliberately NOT given the caller's transaction client:
+// this is a singleton config row, so reading it on the pool costs nothing
+// in correctness and buys the one thing that matters — no statement that
+// names a 009 column ever enters the check-out transaction. The probe
+// above can still be wrong (it caches a true answer for the life of the
+// process, and a column could go away under it), and if it is, the error
+// lands here, on a connection nothing else depends on, instead of
+// poisoning a transaction that was halfway through handing over a
+// forklift. That is why the catch below is safe and the earlier one was
+// not: same try/catch, different connection.
+async function memberLimitSettings() {
+  // On a database where 009 has not been run, the rule simply stays off
+  // and checkout keeps working.
+  if (!(await hasMemberColumns())) return null;
   try {
-    const r = await client.query(
-      `SELECT member_limit_enabled, member_title, member_item_limit, member_limit_per_category
-       FROM public.app_settings WHERE id = 1`);
+    const r = await query(
+      `SELECT ${MEMBER_COLS.join(', ')} FROM public.app_settings WHERE id = 1`);
     return r.rows[0] || null;
   } catch (e) {
-    if (e.code === '42703') return null;   // undefined_column
+    // 42703 = undefined_column. The cached answer was stale; drop it so
+    // the next call re-probes, and treat the rule as off for this one.
+    if (e && e.code === '42703') {
+      _hasMemberCols = false; _memberColsCheckedAt = Date.now();
+      return null;
+    }
     throw e;
   }
 }
@@ -203,7 +248,7 @@ async function memberLimitSettings(client) {
 function plural(n, word) { return `${n} ${word}${n === 1 ? '' : 's'}`; }
 
 async function enforceMemberLimit(client, loanee, assetIds) {
-  const s = await memberLimitSettings(client);
+  const s = await memberLimitSettings();
   if (!s || !s.member_limit_enabled) return;
 
   // Title match is case- and space-insensitive. Rosters are typed by hand,
@@ -276,16 +321,7 @@ async function memberLimitStatus(loaneeId) {
   const loanee = lr.rows[0];
   if (!loanee) return null;
 
-  let s;
-  try {
-    const r = await query(
-      `SELECT member_limit_enabled, member_title, member_item_limit, member_limit_per_category
-       FROM public.app_settings WHERE id = 1`);
-    s = r.rows[0];
-  } catch (e) {
-    if (e.code === '42703') return null;
-    throw e;
-  }
+  const s = await memberLimitSettings();
   if (!s || !s.member_limit_enabled) return null;
 
   const norm = v => String(v || '').trim().toLowerCase();
