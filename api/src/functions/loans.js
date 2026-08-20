@@ -17,6 +17,7 @@ const { app } = require('@azure/functions');
 const { query } = require('../db');
 const {
   json, err, errFromThrow, requireAuth, requireRole, logAudit, readJson, qs, uuidOrNull,
+  isBase, stripPersonFields, stripPersonFieldsAll,
 } = require('../middleware');
 const core = require('../assets-core');
 
@@ -131,7 +132,7 @@ app.http('loanExtend', {
 
 // Everything currently out. This is what the leader PWA polls, so it is
 // readable by every role including the read-only leader.
-// ══════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════
 // 'loans/open' and 'loans/{id}' both match GET /api/loans/open, and the
 // host does NOT reliably prefer the literal — in production the template
 // won, so the board's request arrived here as id="open" and Postgres
@@ -142,26 +143,30 @@ app.http('loanExtend', {
 // function that BOTH registrations call. Whichever way the host resolves
 // it, the same code runs. The same shape is used in loanees.js and
 // assets.js, which had the identical collision.
-// ══════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════
 async function openLoansHandler(request) {
   {
-    const { error, status } = await requireAuth(request);
+    const { user, error, status } = await requireAuth(request);
     if (error) return err(error, status);
     const p = qs(request);
+    // Base does not see which committee someone sits on, so it cannot
+    // filter by it either — the filter would otherwise hand back the
+    // column one value at a time.
+    const subFilter = isBase(user.role) ? null : (p.get('sub_committee') || null);
     const r = await query(
       `SELECT v.* FROM public.v_open_loan_items v
        WHERE ($1::uuid IS NULL OR v.asset_id IN (SELECT id FROM public.assets WHERE category_id = $1))
          AND ($2::text IS NULL OR v.sub_committee = $2)
          AND ($3::boolean IS NOT TRUE OR v.overdue)
        ORDER BY v.overdue DESC, v.due_at ASC NULLS LAST, v.checked_out_at DESC`,
-      [uuidOrNull(p.get('category_id')), p.get('sub_committee') || null, p.get('overdue') === '1']);
+      [uuidOrNull(p.get('category_id')), subFilter, p.get('overdue') === '1']);
     const stats = await query(
       `SELECT
          (SELECT count(*) FROM public.v_open_loan_items)::int                    AS out_now,
          (SELECT count(*) FROM public.v_open_loan_items WHERE overdue)::int      AS overdue,
          (SELECT count(*) FROM public.assets WHERE status='available')::int      AS available,
          (SELECT count(*) FROM public.assets WHERE status='maintenance')::int    AS maintenance`);
-    return json({ rows: r.rows, stats: stats.rows[0] });
+    return json({ rows: stripPersonFieldsAll(r.rows, user.role), stats: stats.rows[0] });
   }
 }
 
@@ -173,7 +178,7 @@ app.http('loansOpen', {
 app.http('loansList', {
   methods: ['GET'], authLevel: 'anonymous', route: 'loans',
   handler: async (request) => {
-    const { error, status } = await requireAuth(request);
+    const { user, error, status } = await requireAuth(request);
     if (error) return err(error, status);
     const p = qs(request);
     const limit = Math.min(parseInt(p.get('limit') || '100', 10) || 100, 500);
@@ -203,7 +208,7 @@ app.http('loansList', {
        ${where}
        ORDER BY l.checked_out_at DESC LIMIT $5 OFFSET $6`, [...params, limit, offset]);
     const total = await query(`SELECT count(*)::int AS n FROM public.loans l ${where}`, params);
-    return json({ rows: rows.rows, total: total.rows[0].n });
+    return json({ rows: stripPersonFieldsAll(rows.rows, user.role), total: total.rows[0].n });
   },
 });
 
@@ -214,7 +219,7 @@ app.http('loansGet', {
     // /api/loans/open, and in production it is the one that wins.
     if (request.params.id === 'open') return openLoansHandler(request);
 
-    const { error, status } = await requireAuth(request);
+    const { user, error, status } = await requireAuth(request);
     if (error) return err(error, status);
     // Anything that is not a UUID cannot be a loan id. Answer 404 rather
     // than handing it to Postgres, which raises 22P02 and surfaces as a
@@ -238,7 +243,7 @@ app.http('loansGet', {
        LEFT JOIN public.asset_categories c ON c.id = a.category_id
        LEFT JOIN public.profiles pi ON pi.id = li.checked_in_by
        WHERE li.loan_id = $1 ORDER BY a.asset_tag`, [request.params.id]);
-    return json({ ...r.rows[0], items: items.rows });
+    return json({ ...stripPersonFields(r.rows[0], user.role), items: items.rows });
   },
 });
 
