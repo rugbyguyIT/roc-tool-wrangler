@@ -96,6 +96,14 @@ function fieldsIn(v, found = new Set(), depth = 0) {
 async function cleanup() {
   await query(
     `DELETE FROM public.profiles WHERE email IN ('pii.base@hlsr.test','pii.leader@hlsr.test')`);
+  // Order matters: the loan lines reference both the asset and the person.
+  await query(
+    `DELETE FROM public.loan_items li USING public.assets a
+      WHERE a.id = li.asset_id AND a.asset_tag = 'PII-CART-1'`);
+  await query(
+    `DELETE FROM public.loans l USING public.loanees ln
+      WHERE ln.id = l.loanee_id AND ln.email = 'pii.subject@example.com'`);
+  await query(`DELETE FROM public.assets  WHERE asset_tag = 'PII-CART-1'`);
   await query(`DELETE FROM public.loanees WHERE email = 'pii.subject@example.com'`);
 }
 
@@ -138,6 +146,23 @@ async function cleanup() {
      RETURNING id`);
   const SUBJ = subj.rows[0].id;
 
+  // An asset that is actually OUT to that person, so the detail view has a
+  // `current` block to leak. Probing an available asset would pass for the
+  // wrong reason: there is no holder on it to redact.
+  await query(`DELETE FROM public.assets WHERE asset_tag = 'PII-CART-1'`);
+  const ar = await query(
+    `INSERT INTO public.assets (asset_tag, title) VALUES ('PII-CART-1','Pii Test Cart') RETURNING id`);
+  const ASSET = ar.rows[0].id;
+  // loans.checked_out_by is NOT NULL — every handoff has an operator on
+  // the record, by design.
+  const op = await query(`SELECT id FROM public.profiles WHERE email = 'admin@hlsr.test'`);
+  const lr = await query(
+    `INSERT INTO public.loans (loanee_id, checked_out_by) VALUES ($1,$2) RETURNING id`,
+    [SUBJ, op.rows[0].id]);
+  await query(
+    `INSERT INTO public.loan_items (loan_id, asset_id) VALUES ($1,$2)`, [lr.rows[0].id, ASSET]);
+  await query(`UPDATE public.assets SET status = 'checked_out' WHERE id = $1`, [ASSET]);
+
   const PROBES = [
     ['GET', 'loanees?limit=5',                    'Member list'],
     ['GET', 'loanees/lookup?q=Subject',           'Member type-ahead (the counter picker)'],
@@ -146,6 +171,11 @@ async function cleanup() {
     ['GET', 'users?limit=5',                      'App user accounts'],
     ['GET', 'me',                                 'Their own profile'],
     ['GET', 'loans/open',                         'What is out right now'],
+    // Added after this suite missed a 500 on it. Every endpoint that
+    // returns a person belongs in this list, including the ones no screen
+    // happens to call today — an untested route is where the next
+    // redaction gets forgotten.
+    ['GET', 'loans?limit=5',                      'Loan history'],
     ['GET', 'reports/out-now',                    'Report: currently out'],
     ['GET', 'reports/overdue',                    'Report: overdue'],
     ['GET', 'reports/by-loanee',                  'Report: usage by member'],
@@ -157,6 +187,11 @@ async function cleanup() {
     ['GET', 'imports?limit=5',                    'Import history'],
     ['GET', 'settings',                           'Settings'],
     ['GET', 'groups',                             'Groups'],
+    // The asset list and the asset detail both name whoever is holding
+    // the thing, and the detail hangs a whole v_open_loan_items row off
+    // `current`. Equipment screens carry people too.
+    ['GET', 'assets?limit=5',                     'Asset list'],
+    ['GET', `assets/${ASSET}`,                    'One asset, full detail'],
     ['GET', `loanees/${SUBJ}/limit`,              'One member: item-limit status'],
   ];
 
@@ -219,6 +254,80 @@ async function cleanup() {
     must(`no secret ever reaches ${who} on any readable endpoint`,
       leaked.size === 0, [...leaked]);
   }
+
+  // Kyle's rule, in his words: "Just the name of the member and the phone
+  // number really and their title." So these must not survive to a Base
+  // session ANYWHERE — not on the member list, not on the counter picker,
+  // not buried in an open_items array hanging off something else. The
+  // sweep is over every endpoint Base can reach, because the way this
+  // fails in practice is that one screen gets redacted and a second one
+  // still hands the same row back under a different key.
+  //
+  // `notes` is deliberately NOT in this list, and that is not an oversight.
+  // Two different columns share the name: assets.notes is "this cart has a
+  // wobbly wheel", which the counter absolutely should see, and
+  // loanees.notes is a note about a person, which it should not. A blanket
+  // sweep on the name flags the equipment one and teaches whoever hits it
+  // to ignore the failure. The member's note is covered instead by the
+  // explicit check below, where it can be about the right column.
+  const HIDDEN_FROM_BASE = ['email', 'loanee_email', 'member_number',
+                            'position', 'sub_committee', 'status_reason'];
+  // `me` is exempt, and only `me`. It returns the signed-in operator's own
+  // account — their email address is the thing they typed to get in. This
+  // rule is about other people's roster records, not about hiding someone
+  // from themselves.
+  const seenByBase = new Set();
+  for (const [method, url] of PROBES.map(p => [p[0], p[1]])) {
+    if (url === 'me') continue;
+    const res = await call(BT, method, url);
+    if (res.status !== 200) continue;
+    fieldsIn(res.body).forEach(f => { if (HIDDEN_FROM_BASE.includes(f)) seenByBase.add(f); });
+  }
+  must('Base sees a name, a phone number and a title — nothing else personal',
+    seenByBase.size === 0, [...seenByBase]);
+
+  // The member's own note, checked where the column is unambiguous.
+  for (const [url, where] of [[`loanees/${SUBJ}`, 'the member detail'],
+                              ['loanees?limit=500', 'the member list']]) {
+    const res = await call(BT, 'GET', url);
+    const txt = JSON.stringify(res.body || {});
+    must(`no note about a person on ${where}`,
+      !txt.includes('Has a bad knee'), txt.slice(0, 160));
+  }
+
+  // A field you cannot see is a field you must not be able to search,
+  // sort by, or filter on. Each of those is a way to read the column back
+  // one answer at a time.
+  const bySearch = await call(BT, 'GET', 'loanees?q=pii.subject%40example.com');
+  must('Base cannot find someone by typing their full email address',
+    (bySearch.body?.rows || []).length === 0, bySearch.body?.total);
+  const bySort = await call(BT, 'GET', 'loanees?sort=email&dir=asc');
+  must('Base cannot order the roster by a column it cannot read',
+    bySort.body?.sort !== 'email', bySort.body?.sort);
+  const byCommittee = await call(BT, 'GET', 'loanees?sub_committee=Rodeo%20Operations');
+  const allBase = await call(BT, 'GET', 'loanees?limit=500');
+  must('Base cannot filter the roster down by committee',
+    (byCommittee.body?.total ?? -1) === (allBase.body?.total ?? -2),
+    { filtered: byCommittee.body?.total, all: allBase.body?.total });
+  const committees = await call(BT, 'GET', 'loanees/committees');
+  must('and gets no committee list to tick through',
+    (committees.body?.rows || []).length === 0, committees.body);
+
+  // Leadership keeps the roster detail — Kyle's explicit call. Asserted so
+  // that "Base only" stays a decision on the record rather than something
+  // a later change quietly widens or narrows.
+  const leadOne = await call(LT, 'GET', `loanees/${SUBJ}`);
+  must('Leadership still sees email and member number, as decided',
+    !!leadOne.body?.email && !!leadOne.body?.member_number,
+    { email: !!leadOne.body?.email, member_number: !!leadOne.body?.member_number });
+
+  // The counter has to keep working. Redaction that breaks check-out is
+  // not a privacy win, it is an outage.
+  const pick = await call(BT, 'GET', 'loanees/lookup?q=Subject');
+  const hit = (pick.body?.matches || [])[0] || {};
+  must('the counter picker still returns a usable person',
+    !!hit.id && !!hit.full_name && !!hit.phone_mobile && !!hit.title,
+    { id: !!hit.id, name: hit.full_name, phone: hit.phone_mobile, title: hit.title });
 
   // The admin-only reads, named individually so a failure says which one.
   const ADMIN_ONLY = [
