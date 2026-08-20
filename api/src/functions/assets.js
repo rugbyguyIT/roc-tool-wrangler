@@ -15,6 +15,7 @@ const { app } = require('@azure/functions');
 const { query, withTransaction } = require('../db');
 const {
   json, err, errFromThrow, requireAuth, requireRole, logAudit, readJson, qs, uuidOrNull,
+  stripPersonFields,
 } = require('../middleware');
 const blob = require('../blob');
 const core = require('../assets-core');
@@ -155,7 +156,7 @@ app.http('assetsGet', {
     // This template also matches the literal route above.
     if (request.params.id === 'lookup') return assetLookupHandler(request);
 
-    const { error, status } = await requireAuth(request);
+    const { user, error, status } = await requireAuth(request);
     if (error) return err(error, status);
     const id = request.params.id;
     // Not a UUID means not an asset id — 404 instead of a Postgres 22P02.
@@ -170,7 +171,10 @@ app.http('assetsGet', {
        JOIN public.groups g ON g.id = ag.group_id WHERE ag.asset_id = $1 ORDER BY g.name`, [id]);
     const current = await query(
       `SELECT * FROM public.v_open_loan_items WHERE asset_id = $1`, [id]);
-    return json({ ...r.rows[0], photos: photos.rows, groups: groups.rows, current: current.rows[0] || null });
+    // `current` is a whole v_open_loan_items row, so it carries the
+    // holder's email and committee under the view's own names.
+    return json({ ...r.rows[0], photos: photos.rows, groups: groups.rows,
+                  current: stripPersonFields(current.rows[0], user.role) || null });
   },
 });
 
