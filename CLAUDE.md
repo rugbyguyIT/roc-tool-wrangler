@@ -111,7 +111,13 @@ DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/roster.js  
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/repairs.js  #  38
 DATABASE_URL=... JWT_SECRET=test BOOTSTRAP_SECRET=boot node api/test/users.js    #  50
 node api/test/routes-audit.js    # every mutating route has a role gate
+node api/test/swa-config.js      # every SWA route still points at a real file  #  31
 ```
+
+The last two need no database and no server. `swa-config.js` is the only
+thing in the repo that reads `staticwebapp.config.json` at all — without it,
+a route pointing at a page that has been renamed stays wrong until someone
+types the address in production and gets a 404.
 
 **Run them in that order.** `login.js`, `limits.js` and `routing.js` all reuse
 the admin `smoke.js` bootstraps rather than creating a second one, so they
