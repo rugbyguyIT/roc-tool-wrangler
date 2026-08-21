@@ -177,7 +177,50 @@ async function handleLogin(ev) {
   if (portal) window.location.href = portal;
 })();
 
+// ── Why you are looking at this screen ──────────────────────
+// Kyle: "auto log you out ... and a message of why."
+//
+// Landing on a login page you did not ask for reads as the app having
+// broken. It is worth two sentences to say it did the opposite.
+//
+// Deliberate sign-out gets no note at all: pressing Sign out and then
+// being told why you are signed out is the app explaining a thing you
+// just did.
+const ENDED_NOTES = {
+  expired: {
+    title: 'Your session ended.',
+    body: 'Sign-ins do not stay open forever, so a tablet left on the counter '
+        + 'cannot be picked up by the next person. Sign in again to carry on.',
+  },
+  revoked: {
+    title: 'You were signed out.',
+    body: 'Something about your account changed — a new password, a different role, '
+        + 'or an admin signing you out everywhere. Signing in again should sort it.',
+  },
+};
+
+function showEndedNote() {
+  const params = new URLSearchParams(location.search);
+  const note = ENDED_NOTES[params.get('ended')];
+
+  // Strip it either way, including a value we do not recognise. A reason
+  // in the address bar can be bookmarked, re-shown by a refresh, or typed
+  // in by anyone; it has done its job the moment it is read once.
+  if (params.has('ended')) {
+    params.delete('ended');
+    const q = params.toString();
+    history.replaceState(null, '', location.pathname + (q ? `?${q}` : ''));
+  }
+
+  if (!note) return;
+  const el = document.getElementById('login-note');
+  if (!el) return;
+  el.innerHTML = `<b>${esc(note.title)}</b> ${esc(note.body)}`;
+  el.style.display = 'block';
+}
+
 // After the redirect check, so a signed-in visitor never sees the form
 // flicker into a filled-in state on its way somewhere else.
 wireRetitle();
 prefillIdentity();
+showEndedNote();
