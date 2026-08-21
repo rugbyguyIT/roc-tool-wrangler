@@ -30,10 +30,91 @@ function getProfile() {
   try { return JSON.parse(localStorage.getItem(PROFILE_KEY) || sessionStorage.getItem(PROFILE_KEY) || 'null'); }
   catch { return null; }
 }
-function signOut() {
+// ── Ending a session, and saying why ───────────────────────
+// Kyle: "I need to make the app auto log you out and not just stay in the
+// app when login time expires. and a message of why."
+//
+// Both halves matter. Before this, a session only died when someone
+// happened to make an API call — so a tablet could sit on the counter all
+// night looking signed in, and the first tap the next morning would throw
+// you to a login screen with no explanation. That reads as the app
+// breaking, not as the app doing its job.
+//
+// The reason travels in the URL because the storage it would otherwise
+// live in has just been cleared. The login page reads it once and strips
+// it from the address bar, so a refresh does not re-accuse anyone.
+const SESSION_ENDED = {
+  EXPIRED: 'expired',   // the token passed its own exp
+  REVOKED: 'revoked',   // still in date, but the server refused it anyway
+  OUT: 'out',           // they pressed Sign out; no explanation is owed
+};
+
+function endSession(reason) {
   [localStorage, sessionStorage].forEach(s => { s.removeItem(TOKEN_KEY); s.removeItem(PROFILE_KEY); });
   localStorage.removeItem('assets.brand');
-  window.location.href = '/index.html';
+  window.location.href = reason && reason !== SESSION_ENDED.OUT
+    ? `/index.html?ended=${encodeURIComponent(reason)}`
+    : '/index.html';
+}
+
+// The nav's Sign out button. Deliberate, so it explains nothing.
+function signOut() { endSession(SESSION_ENDED.OUT); }
+
+// When this token says it dies, in ms since the epoch, or 0 if it cannot
+// be read. The payload is the middle segment of the JWT, base64url and
+// unsigned — reading it proves nothing and is not meant to. The server
+// remains the only thing that decides whether a token is good; this is
+// purely so the app can get ahead of it and say something useful.
+function tokenExpiresAt(token) {
+  try {
+    let seg = String(token).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (seg.length % 4) seg += '=';
+    const exp = JSON.parse(atob(seg)).exp;
+    return exp ? exp * 1000 : 0;
+  } catch { return 0; }
+}
+
+// Five minutes' notice. Worth having precisely BECAUSE the logout is now
+// automatic: being dropped mid-cart with no warning would lose the cart.
+const SESSION_WARN_MS = 5 * 60 * 1000;
+let sessionTimer = null;
+let sessionWarned = false;
+let sessionWatching = false;
+
+function checkSession() {
+  clearTimeout(sessionTimer);
+  const token = getToken();
+  if (!token) return;                       // already signed out
+  const endsAt = tokenExpiresAt(token);
+  if (!endsAt) return;                      // unreadable; the server still decides
+
+  const left = endsAt - Date.now();
+  if (left <= 0) return endSession(SESSION_ENDED.EXPIRED);
+
+  if (left <= SESSION_WARN_MS && !sessionWarned && document.body) {
+    sessionWarned = true;
+    toastMsg('Your session ends in a few minutes',
+      'You will need to sign in again. Anything you submit before then still goes through.', 'error');
+  }
+
+  // Re-check at the expiry moment, or in 30 seconds, whichever is sooner.
+  // Never one long sleep, for two separate reasons: setTimeout silently
+  // fires IMMEDIATELY past about 24.8 days, which a 30-day leader session
+  // would sail straight through, and a device that sleeps does not run
+  // timers at all while it is asleep.
+  sessionTimer = setTimeout(checkSession, Math.min(left, 30000));
+}
+
+// The events matter as much as the timer. A tablet that slept through the
+// expiry wakes up with a dead token and no timer having fired, so the
+// check runs again the moment the page is looked at.
+function watchSession() {
+  if (sessionWatching) return;
+  sessionWatching = true;
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkSession(); });
+  window.addEventListener('focus', checkSession);
+  window.addEventListener('pageshow', checkSession);   // back/forward cache
+  checkSession();
 }
 
 // Every call returns { data, error } and NEVER throws, so call sites are
@@ -53,7 +134,19 @@ async function api(path, method = 'GET', body) {
     });
     if (res.status === 401) {
       const data = await res.json().catch(() => null);
-      if (hadToken) { signOut(); return { data: null, error: 'Session expired' }; }
+      if (hadToken) {
+        // The server says no, and deliberately says only "Unauthorized" to
+        // everybody. Which kind of no it is gets decided from the token we
+        // still hold: past its own exp means the clock ran out; still in
+        // date means something about the account changed underneath us — a
+        // password reset, a role change, an admin signing them out
+        // everywhere. Read locally rather than asking the API to explain
+        // itself to an unauthenticated caller.
+        const endsAt = tokenExpiresAt(getToken());
+        endSession(!endsAt || endsAt <= Date.now()
+          ? SESSION_ENDED.EXPIRED : SESSION_ENDED.REVOKED);
+        return { data: null, error: 'Session expired' };
+      }
       return { data: null, error: (data && data.error) || 'Unauthorized' };
     }
     const data = await res.json().catch(() => null);
@@ -69,12 +162,24 @@ async function api(path, method = 'GET', body) {
 // every API handler.
 function requireLogin(...roles) {
   const p = getProfile();
-  if (!p || !getToken()) { window.location.href = '/index.html'; return null; }
+  const token = getToken();
+  if (!p || !token) { window.location.href = '/index.html'; return null; }
+
+  // The tablet that sat on the counter all night lands here. Catching it
+  // at page load means the login screen explains itself, instead of the
+  // first tap on a button doing it half a second later.
+  const endsAt = tokenExpiresAt(token);
+  if (endsAt && endsAt <= Date.now()) { endSession(SESSION_ENDED.EXPIRED); return null; }
+
   if (roles.length && !roles.includes(p.role)) { window.location.href = '/index.html'; return null; }
+
+  // Every authenticated page calls requireLogin, which makes it the one
+  // place the watcher has to be started from.
+  watchSession();
   return p;
 }
 
-// ── Formatting helpers ───────────────────────────────────────
+// ── Formatting helpers ───────────────────────────────────
 function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
 
 function fmtWhen(iso, fallback = '—') {
@@ -124,7 +229,7 @@ function toastMsg(title, body, kind) {
   setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 320); }, kind === 'error' ? 8000 : 5000);
 }
 
-// ── Branding ─────────────────────────────────────────────────
+// ── Branding ────────────────────────────────────────────
 // Two sources, deliberately, in this order:
 //
 //   1. The constants in js/config.js — always available, including on the
@@ -205,7 +310,7 @@ if (typeof window !== 'undefined') {
 // Register the service worker on every page.
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
-// ── Client-side application/error logging ─────────────────────────
+// ── Client-side application/error logging ─────────────────────
 // Fire and forget: never blocks the UI, never throws. Surfaces in
 // Admin → Settings → Application Logs. Only sent when signed in;
 // the login page just console.errors.

@@ -17,6 +17,10 @@
 // Neither shows up in any other suite, because nothing else in the repo
 // reads this file. It is pure deployment configuration, which is another
 // way of saying nothing catches a mistake in it until production does.
+//
+// It has since grown a second job: holding the two login pages and the
+// script behind them to the same contract, for the same reason — nothing
+// else checks any of it.
 // ══════════════════════════════════════════════════════════════
 const fs = require('fs');
 const path = require('path');
@@ -114,7 +118,7 @@ for (const page of ['index.html', '1932.html']) {
   // js/auth.js reads these by id. A renamed field is a login page that
   // silently cannot log anyone in.
   for (const id of ['login-error', 'email', 'password', 'login-btn', 'login-btn-label',
-                    'pw-icon', 'password-label', 'not-you']) {
+                    'pw-icon', 'password-label', 'not-you', 'login-note']) {
     check(`${page} has #${id}, which js/auth.js reads by id`, html.includes(`id="${id}"`));
   }
   check(`${page} keeps the name field as type="text"`,
@@ -138,10 +142,11 @@ for (const page of ['index.html', '1932.html']) {
 section('The login script backs those pages up');
 // Cheap, and it has already earned itself once: a PLACEHOLDER string
 // went out in a pushed .js file and took the whole app down. These are
-// the four behaviours the two pages above depend on existing here.
+// the behaviours the two pages above depend on existing here.
 const authJs = fs.readFileSync(path.join(ROOT, 'js', 'auth.js'), 'utf8');
 for (const fn of ['function handleLogin', 'function clearIdentity',
-                  'function prefillIdentity', 'function retitlePassword']) {
+                  'function prefillIdentity', 'function retitlePassword',
+                  'function showEndedNote']) {
   check(`js/auth.js defines ${fn.replace('function ', '')}()`, authJs.includes(fn));
 }
 // The one rule about what may be remembered. Storing the second box
@@ -149,6 +154,39 @@ for (const fn of ['function handleLogin', 'function clearIdentity',
 check('js/auth.js never writes the password or zip to storage',
   !/setItem\([^)]*(password|zip)/i.test(authJs),
   'Only the identifier may be remembered.');
+
+section('Sessions end by themselves, and say so');
+// The expiry watcher lives in js/api.js because every authenticated page
+// loads it. If any of this goes missing, the app goes back to looking
+// signed in all night and only noticing on the next button press.
+const apiJs = fs.readFileSync(path.join(ROOT, 'js', 'api.js'), 'utf8');
+for (const fn of ['function endSession', 'function watchSession',
+                  'function checkSession', 'function tokenExpiresAt']) {
+  check(`js/api.js defines ${fn.replace('function ', '')}()`, apiJs.includes(fn));
+}
+check('requireLogin starts the watcher, so every page is covered',
+  /function requireLogin[\s\S]*?watchSession\(\)[\s\S]*?\n}/.test(apiJs));
+check('the watcher re-checks when a slept device wakes up',
+  apiJs.includes('visibilitychange') && apiJs.includes("'focus'"),
+  'A timer alone does not run while the device is asleep.');
+// setTimeout fires IMMEDIATELY for delays past ~24.8 days, which the
+// 30-day leader session would sail straight through.
+check('no single sleep can overflow setTimeout',
+  /setTimeout\(checkSession, Math\.min\(/.test(apiJs),
+  'The next check must be capped, not scheduled at the full remaining time.');
+// Every reason the login page knows how to explain must be one this file
+// can actually send, and the other way round.
+const sent = [...apiJs.matchAll(/SESSION_ENDED\s*=\s*{([\s\S]*?)}/g)]
+  .flatMap(m => [...m[1].matchAll(/'([a-z]+)'/g)].map(x => x[1]));
+for (const r of ['expired', 'revoked', 'out']) {
+  check(`js/api.js can end a session with reason "${r}"`, sent.includes(r), sent);
+}
+for (const r of ['expired', 'revoked']) {
+  check(`js/auth.js has wording for "${r}"`, new RegExp(`\\b${r}:`).test(authJs));
+}
+check('a deliberate sign-out is not explained back to the user',
+  !/\bout:\s*{/.test(authJs),
+  'Pressing Sign out and being told why you are signed out is noise.');
 
 console.log(`\n\x1b[1m${passed} passed, ${failures.length} failed\x1b[0m`);
 if (failures.length) {

@@ -33,6 +33,15 @@
     <div class="auth-card">
       <div id="login-error" class="auth-error" style="display:none"></div>
 
+      <!-- Why you are here, when you did not ask to be. Filled by
+           showEndedNote() in js/auth.js from the ?ended= reason. Calm on
+           purpose: this is the app working, not an error, and the red
+           .auth-error treatment above would say the opposite. Left-aligned
+           because it is two sentences of prose in a centred card. -->
+      <div id="login-note" style="display:none;margin-bottom:18px;padding:11px 14px;border-radius:10px;
+           background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.14);
+           color:rgba(255,255,255,0.72);font-size:var(--fs-sm);line-height:1.55;text-align:left"></div>
+
       <div class="auth-eyebrow" data-app-org>Houston Livestock Show and Rodeo™</div>
       <h1 class="auth-heading" style="margin-bottom:8px">
         <span class="auth-heading-accent">Sign in.</span>
